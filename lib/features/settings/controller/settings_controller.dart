@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:firefox_calendar/services/auth_service.dart';
 import 'package:firefox_calendar/services/biometric_service.dart';
+import 'package:firefox_calendar/features/settings/view/biometric_enrollment_dialog.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -35,10 +36,24 @@ class SettingsController extends GetxController {
   final RxString userEmail = ''.obs;
   final RxString userPhone = ''.obs;
   final RxString userProfilePicture = ''.obs;
+  final RxString firstName = ''.obs;
+  final RxString lastName = ''.obs;
   final RxBool isAdmin = false.obs;
 
   // Active tab
   final RxString activeTab = 'profile'.obs;
+
+  // Edit mode
+  final RxBool isEditMode = false.obs;
+  
+  // Form controllers for edit mode
+  final firstNameController = TextEditingController();
+  final lastNameController = TextEditingController();
+  final phoneController = TextEditingController();
+  
+  // Update profile loading and error states
+  final RxBool isUpdatingProfile = false.obs;
+  final RxString profileUpdateError = ''.obs;
 
   // Notification settings
   final RxMap<String, bool> notifications = <String, bool>{
@@ -76,10 +91,17 @@ class SettingsController extends GetxController {
 
   /// Load user data from storage
   void _loadUserData() {
+    firstName.value = storage.read('firstName') ?? '';
+    lastName.value = storage.read('lastName') ?? '';
     userName.value = storage.read('userName') ?? 'User';
     userEmail.value = storage.read('userEmail') ?? '';
     userPhone.value = storage.read('userPhone') ?? '';
     userProfilePicture.value = storage.read('userProfilePicture') ?? '';
+    
+    // Initialize form controllers with current values
+    firstNameController.text = firstName.value;
+    lastNameController.text = lastName.value;
+    phoneController.text = userPhone.value;
     
     // Mock admin check - replace with actual logic
     isAdmin.value = userEmail.value == 'admin@gmail.com';
@@ -87,10 +109,128 @@ class SettingsController extends GetxController {
 
   /// Refresh user data from storage (called after profile update)
   void refreshUserData() {
+    firstName.value = storage.read('firstName') ?? '';
+    lastName.value = storage.read('lastName') ?? '';
     userName.value = storage.read('userName') ?? 'User';
     userEmail.value = storage.read('userEmail') ?? '';
     userPhone.value = storage.read('userPhone') ?? '';
+    userProfilePicture.value = storage.read('userProfilePicture') ?? '';
+    
+    // Update form controllers
+    firstNameController.text = firstName.value;
+    lastNameController.text = lastName.value;
+    phoneController.text = userPhone.value;
+    
     print('👤 User data refreshed in Settings');
+  }
+
+  // =========================================================
+  // EDIT PROFILE METHODS
+  // =========================================================
+
+  /// Enable edit mode
+  void enableEditMode() {
+    isEditMode.value = true;
+    profileUpdateError.value = '';
+    // Pre-fill controllers with current values
+    firstNameController.text = firstName.value;
+    lastNameController.text = lastName.value;
+    phoneController.text = userPhone.value;
+  }
+
+  /// Disable edit mode
+  void disableEditMode() {
+    isEditMode.value = false;
+    profileUpdateError.value = '';
+    // Reset controllers to current values
+    firstNameController.text = firstName.value;
+    lastNameController.text = lastName.value;
+    phoneController.text = userPhone.value;
+  }
+
+  /// Update user profile
+  Future<void> updateProfile() async {
+    try {
+      isUpdatingProfile.value = true;
+      profileUpdateError.value = '';
+
+      // Validate form
+      if (firstNameController.text.trim().isEmpty) {
+        profileUpdateError.value = 'First name is required';
+        isUpdatingProfile.value = false;
+        return;
+      }
+
+      if (lastNameController.text.trim().isEmpty) {
+        profileUpdateError.value = 'Last name is required';
+        isUpdatingProfile.value = false;
+        return;
+      }
+
+      print('📝 [SettingsController] Updating profile...');
+      print('   First Name: ${firstNameController.text.trim()}');
+      print('   Last Name: ${lastNameController.text.trim()}');
+      print('   Email: ${userEmail.value}');
+
+      // Call update profile API
+      final result = await _authService.updateUserProfile(
+        firstName: firstNameController.text.trim(),
+        lastName: lastNameController.text.trim(),
+        email: userEmail.value, // Email is read-only, use current value
+      );
+
+      if (result['success'] == true) {
+        // Refresh user data from storage (AuthService updates it)
+        refreshUserData();
+        
+        // Exit edit mode
+        isEditMode.value = false;
+        
+        // Show success message
+        Get.snackbar(
+          'Success',
+          'Profile updated successfully',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.shade100,
+          colorText: Colors.green.shade900,
+          duration: const Duration(seconds: 2),
+        );
+        
+        print('✅ [SettingsController] Profile updated successfully');
+      } else {
+        profileUpdateError.value = result['message'] ?? 'Failed to update profile. Please try again.';
+        Get.snackbar(
+          'Error',
+          profileUpdateError.value,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        print('❌ [SettingsController] Profile update failed: ${result['message']}');
+      }
+    } catch (e) {
+      print('💥 [SettingsController] Profile update error: $e');
+      profileUpdateError.value = 'An error occurred. Please try again.';
+      Get.snackbar(
+        'Error',
+        profileUpdateError.value,
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 3),
+      );
+    } finally {
+      isUpdatingProfile.value = false;
+    }
+  }
+
+  @override
+  void onClose() {
+    firstNameController.dispose();
+    lastNameController.dispose();
+    phoneController.dispose();
+    super.onClose();
   }
 
   /// Load settings from storage
@@ -361,10 +501,9 @@ class SettingsController extends GetxController {
   // =========================================================
 
   /// Handle biometric enrollment
+  /// Shows dialog asking for username and password first
   Future<void> enrollBiometric() async {
     try {
-      isLoading.value = true;
-
       if (kIsWeb) {
         Get.snackbar(
           'Not Supported',
@@ -391,32 +530,8 @@ class SettingsController extends GetxController {
         return;
       }
 
-      // Authenticate to enable biometric
-      final authenticated = await _biometricService.authenticateToEnable();
-
-      if (authenticated) {
-        biometricEnabled.value = true;
-        await storage.write('biometricEnabled', true);
-        await storage.write('biometricSetupDate', DateTime.now().toIso8601String());
-
-        Get.snackbar(
-          'Success',
-          'Biometric login enrolled successfully',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green.shade100,
-          colorText: Colors.green.shade900,
-          duration: const Duration(seconds: 2),
-        );
-      } else {
-        Get.snackbar(
-          'Failed',
-          'Biometric enrollment failed or was cancelled',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.red.shade100,
-          colorText: Colors.red.shade900,
-          duration: const Duration(seconds: 2),
-        );
-      }
+      // Show dialog asking for username and password
+      await _showBiometricEnrollmentDialog();
     } catch (e) {
       print('Error enrolling biometric: $e');
       Get.snackbar(
@@ -426,6 +541,171 @@ class SettingsController extends GetxController {
         backgroundColor: Colors.red.shade100,
         colorText: Colors.red.shade900,
         duration: const Duration(seconds: 2),
+      );
+    }
+  }
+
+  /// Show biometric enrollment dialog with username/password fields
+  Future<void> _showBiometricEnrollmentDialog() async {
+    await Get.dialog(
+      BiometricEnrollmentDialog(
+        onEnable: (email, password) async {
+          await _verifyCredentialsAndEnableBiometric(email, password);
+        },
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  /// Verify credentials and enable biometric authentication
+  Future<void> _verifyCredentialsAndEnableBiometric(
+    String email,
+    String password,
+  ) async {
+    try {
+      isLoading.value = true;
+
+      print('🔐 [SettingsController] Verifying credentials for biometric enrollment...');
+
+      // Step 1: Verify credentials by attempting login
+      final loginResult = await _authService.loginUser(
+        email: email,
+        password: password,
+      );
+
+      if (loginResult['success'] != true) {
+        // Credentials are invalid
+        Get.back(); // Close dialog
+        Get.snackbar(
+          'Authentication Failed',
+          loginResult['message'] ?? 'Invalid email or password. Please try again.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        isLoading.value = false;
+        return;
+      }
+
+      // Step 2: Extract API token from login response
+      final loginData = loginResult['data'];
+      final apiToken = loginData?['api_token'] ?? '';
+      
+      if (apiToken.isEmpty) {
+        Get.back(); // Close dialog
+        Get.snackbar(
+          'Error',
+          'Failed to get API token. Please try again.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        isLoading.value = false;
+        return;
+      }
+
+      print('✅ [SettingsController] Credentials verified, API token received');
+      print('🔑 [SettingsController] API Token: ${apiToken.substring(0, 20)}...');
+
+      // Step 3: Store is_biometric_enable flag and API token in local storage
+      await storage.write('is_biometric_enable', true);
+      await storage.write('biometric_api_token', apiToken);
+      await storage.write('biometricEnabled', true);
+      await storage.write('biometricSetupDate', DateTime.now().toIso8601String());
+      
+      print('✅ [SettingsController] Biometric flags and API token stored in local storage');
+
+      // Step 4: Authenticate using biometric (fingerprint/face ID) on device level
+      print('🔐 [SettingsController] Requesting device-level biometric authentication...');
+      final authenticated = await _biometricService.authenticateToEnable();
+
+      if (authenticated) {
+        // Step 5: Device-level biometric authentication successful, now register with API
+        print('✅ [SettingsController] Device biometric authenticated, registering with API...');
+        
+        final registerResult = await _authService.registerBiometric(
+          apiToken: apiToken,
+        );
+
+        if (registerResult['success'] == true) {
+          // Extract and store the new biometric_token from API response
+          final registerData = registerResult['data'];
+          final newBiometricToken = registerData?['biometric_token'] ?? '';
+          
+          if (newBiometricToken.isNotEmpty) {
+            await storage.write('biometric_token', newBiometricToken);
+            print('✅ [SettingsController] New biometric_token stored: ${newBiometricToken.substring(0, 20)}...');
+          } else {
+            print('⚠️ [SettingsController] WARNING: No biometric_token in register response');
+          }
+          
+          // Biometric enrollment and registration successful
+          biometricEnabled.value = true;
+          
+          Get.back(); // Close dialog
+
+          Get.snackbar(
+            'Success',
+            'Biometric login enrolled and registered successfully',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.green.shade100,
+            colorText: Colors.green.shade900,
+            duration: const Duration(seconds: 2),
+          );
+
+          print('✅ [SettingsController] Biometric enrollment and API registration completed successfully');
+        } else {
+          // API registration failed, but device biometric is enabled
+          print('⚠️ [SettingsController] Device biometric enabled but API registration failed');
+          
+          Get.back(); // Close dialog
+          
+          Get.snackbar(
+            'Partial Success',
+            'Biometric enabled on device, but server registration failed. ${registerResult['message'] ?? ''}',
+            snackPosition: SnackPosition.BOTTOM,
+            backgroundColor: Colors.orange.shade100,
+            colorText: Colors.orange.shade900,
+            duration: const Duration(seconds: 3),
+          );
+        }
+      } else {
+        // Biometric authentication failed or cancelled
+        // Clear the flags since enrollment didn't complete
+        await storage.remove('is_biometric_enable');
+        await storage.remove('biometric_api_token');
+        await storage.write('biometricEnabled', false);
+        
+        Get.back(); // Close dialog
+        Get.snackbar(
+          'Failed',
+          'Biometric enrollment failed or was cancelled',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 2),
+        );
+        
+        print('❌ [SettingsController] Biometric authentication failed or cancelled');
+      }
+    } catch (e) {
+      print('💥 [SettingsController] Error during biometric enrollment: $e');
+      
+      // Clear flags on error
+      await storage.remove('is_biometric_enable');
+      await storage.remove('biometric_api_token');
+      await storage.write('biometricEnabled', false);
+      
+      Get.back(); // Close dialog
+      Get.snackbar(
+        'Error',
+        'Failed to enroll biometric authentication. Please try again.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 3),
       );
     } finally {
       isLoading.value = false;

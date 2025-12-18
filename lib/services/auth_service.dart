@@ -20,6 +20,11 @@ class AuthService {
   static const String logoutEndpoint = '$baseUrl/user/logout';
   static const String updateProfileEndpoint = '$baseUrl/user/update';
   static const String updateProfilePhotoEndpoint = '$baseUrl/user/update_profile_photo';
+  static const String biometricRegisterEndpoint = '$baseUrl/user/biometric_register';
+  static const String biometricLoginEndpoint = '$baseUrl/user/biometric_login';
+  static const String createEventEndpoint = '$baseUrl/create/events';
+  static const String getSingleEventEndpoint = '$baseUrl/single/events';
+  static const String getAllEventsEndpoint = '$baseUrl/all/events';
   
   // =========================================================
   // DEPENDENCIES
@@ -338,6 +343,283 @@ class AuthService {
   };
 }
 
+  // =========================================================
+  // BIOMETRIC REGISTER API
+  // =========================================================
+
+  /// Register biometric authentication with the server
+  /// Parameters: apiToken
+  /// Returns: Map with success status and message
+  Future<Map<String, dynamic>> registerBiometric({
+    required String apiToken,
+  }) async {
+    try {
+      print('🔐 [AuthService] Starting biometric registration...');
+      
+      final requestData = {
+        'api_token': apiToken,
+      };
+
+      print('🔐 [AuthService] Biometric register request with api_token');
+
+      final response = await http.post(
+        Uri.parse(biometricRegisterEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      print('🔐 [AuthService] Biometric register response status: ${response.statusCode}');
+      print('🔐 [AuthService] Biometric register response body: ${response.body}');
+
+      return _handleResponse(response, 'Biometric Register');
+    } catch (e) {
+      print('💥 [AuthService] Biometric register error: $e');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // BIOMETRIC LOGIN API
+  // =========================================================
+
+  /// Login using biometric authentication
+  /// Parameters: apiToken, biometricToken
+  /// Returns: Map with success status, message, and user data
+  Future<Map<String, dynamic>> biometricLogin({
+    required String apiToken,
+    required String biometricToken,
+  }) async {
+    try {
+      print('🔐 [AuthService] Starting biometric login...');
+      
+      final requestData = {
+        'api_token': apiToken,
+        'biometric_token': biometricToken,
+      };
+
+      print('🔐 [AuthService] Biometric login request');
+
+      final response = await http.post(
+        Uri.parse(biometricLoginEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      print('🔐 [AuthService] Biometric login response status: ${response.statusCode}');
+      print('🔐 [AuthService] Biometric login response body: ${response.body}');
+
+      final result = _handleResponse(response, 'Biometric Login');
+      
+      // Store user data if login successful
+      if (result['success'] == true && result['data'] != null) {
+        await _storeUserData(result['data']);
+      }
+      
+      return result;
+    } catch (e) {
+      print('💥 [AuthService] Biometric login error: $e');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // CREATE EVENT API
+  // =========================================================
+
+  /// Create a new event
+  /// Parameters: title, date, startTime, endTime, description, eventTypeId
+  /// Returns: Map with success status, message, and event data
+  Future<Map<String, dynamic>> createEvent({
+    required String title,
+    required String date,
+    required String startTime,
+    required String endTime,
+    String? description,
+    required int eventTypeId,
+  }) async {
+    try {
+      print('📅 [AuthService] Starting event creation...');
+      
+      final apiToken = _storage.read('apiToken') ?? '';
+      
+      if (apiToken.isEmpty) {
+        return {
+          'success': false,
+          'message': 'Authentication token not found. Please log in again.',
+        };
+      }
+
+      final requestData = {
+        'api_token': apiToken,
+        'title': title.trim(),
+        'date': date,
+        'start_time': startTime,
+        'end_time': endTime,
+        'event_type_id': eventTypeId,
+      };
+
+      // Add description if provided
+      if (description != null && description.trim().isNotEmpty) {
+        requestData['description'] = description.trim();
+      }
+
+      print('📅 [AuthService] Create event request: $requestData');
+
+      final response = await http.post(
+        Uri.parse(createEventEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      print('📅 [AuthService] Create event response status: ${response.statusCode}');
+      print('📅 [AuthService] Create event response body: ${response.body}');
+
+      return _handleResponse(response, 'Create Event');
+    } catch (e) {
+      print('💥 [AuthService] Create event error: $e');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // GET SINGLE EVENT API
+  // =========================================================
+
+  /// Get single event details by ID
+  /// Parameters: eventId
+  /// Returns: Map with success status, message, and event data
+  Future<Map<String, dynamic>> getSingleEvent({
+    required int eventId,
+  }) async {
+    try {
+      print('📅 [AuthService] Starting get single event...');
+      
+      final apiToken = _storage.read('apiToken') ?? '';
+      
+      if (apiToken.isEmpty) {
+        return {
+          'success': false,
+          'message': 'Authentication token not found. Please log in again.',
+        };
+      }
+
+      final requestData = {
+        'id': eventId,
+      };
+
+      print('📅 [AuthService] Get single event request: $requestData');
+
+      final response = await http.post(
+        Uri.parse(getSingleEventEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      print('📅 [AuthService] Get single event response status: ${response.statusCode}');
+      print('📅 [AuthService] Get single event response body: ${response.body}');
+
+      return _handleResponse(response, 'Get Single Event');
+    } catch (e) {
+      print('💥 [AuthService] Get single event error: $e');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // GET ALL EVENTS API
+  // =========================================================
+
+  /// Get all events for the logged-in user
+  /// Parameters: Optional event_type_id, sub_type_name, sub_type_description
+  /// Returns: Map with success status, message, and list of events
+  Future<Map<String, dynamic>> getAllEvents({
+    int? eventTypeId,
+    String? subTypeName,
+    String? subTypeDescription,
+  }) async {
+    try {
+      print('📅 [AuthService] Starting get all events...');
+      
+      final apiToken = _storage.read('apiToken') ?? '';
+      
+      if (apiToken.isEmpty) {
+        return {
+          'success': false,
+          'message': 'Authentication token not found. Please log in again.',
+        };
+      }
+
+      final requestData = {
+        'api_token': apiToken,
+      };
+
+      // Add optional parameters if provided
+      if (eventTypeId != null) {
+        requestData['event_type_id'] = eventTypeId;
+      }
+      if (subTypeName != null && subTypeName.isNotEmpty) {
+        requestData['sub_type_name'] = subTypeName;
+      }
+      if (subTypeDescription != null && subTypeDescription.isNotEmpty) {
+        requestData['sub_type_description'] = subTypeDescription;
+      }
+
+      print('📅 [AuthService] Get all events request: $requestData');
+
+      // Build URL with query parameters (GET request)
+      final uri = Uri.parse(getAllEventsEndpoint).replace(
+        queryParameters: requestData.map((key, value) => MapEntry(key, value.toString())),
+      );
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      print('📅 [AuthService] Get all events response status: ${response.statusCode}');
+      print('📅 [AuthService] Get all events response body: ${response.body}');
+
+      return _handleResponse(response, 'Get All Events');
+    } catch (e) {
+      print('💥 [AuthService] Get all events error: $e');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
 
   // =========================================================
   // HELPER METHODS
@@ -413,7 +695,18 @@ class AuthService {
       await _storage.write('userName', fullName);
       
       // Store API token
-      if (userData['api_token'] != null) await _storage.write('apiToken', userData['api_token']);
+      if (userData['api_token'] != null) {
+        await _storage.write('apiToken', userData['api_token']);
+        print('✅ [AuthService] API token stored successfully');
+      } else {
+        print('⚠️ [AuthService] WARNING: api_token not found in response data');
+      }
+      
+      // Store biometric token (for biometric login API)
+      if (userData['biometric_token'] != null) {
+        await _storage.write('biometric_token', userData['biometric_token']);
+        print('✅ [AuthService] Biometric token stored successfully');
+      }
       
       // Store profile image
       if (userData['profile_image'] != null) {
@@ -432,6 +725,14 @@ class AuthService {
       final sessionExpiry = DateTime.now().add(const Duration(days: 30));
       await _storage.write('sessionExpiry', sessionExpiry.toIso8601String());
       await _storage.write('loginTimestamp', DateTime.now().toIso8601String());
+      
+      // Verify token was stored correctly
+      final storedToken = _storage.read('apiToken');
+      if (storedToken != null && storedToken.toString().isNotEmpty) {
+        print('✅ [AuthService] Token verification: apiToken stored and verified');
+      } else {
+        print('⚠️ [AuthService] WARNING: Token verification failed - apiToken is missing or empty');
+      }
       
       print('âœ… [AuthService] User data stored successfully');
     } catch (e) {

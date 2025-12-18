@@ -68,11 +68,11 @@ class CreateAccountController extends GetxController {
     emailController.removeListener(_validateEmail);
     
     // Dispose all text editing controllers
-    firstNameController.dispose();
-    lastNameController.dispose();
-    emailController.dispose();
-    passwordController.dispose();
-    confirmPasswordController.dispose();
+    // firstNameController.dispose();
+    // lastNameController.dispose();
+    // emailController.dispose();
+    // passwordController.dispose();
+    // confirmPasswordController.dispose();
     
     super.onClose();
   }

@@ -1,6 +1,7 @@
 
 import 'package:firefox_calendar/features/calendar/controller/create_event_controller.dart';
 import 'package:firefox_calendar/routes/app_routes.dart';
+import 'package:firefox_calendar/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -11,6 +12,7 @@ import 'package:get_storage/get_storage.dart';
 class CalendarController extends GetxController {
   // Storage
   final storage = GetStorage();
+  final AuthService _authService = AuthService();
 
   // View types
   final RxString viewType = 'week'.obs; // 'day', 'week', 'month'
@@ -27,26 +29,38 @@ class CalendarController extends GetxController {
 
   // Selected meeting for detail view
   final Rx<Meeting?> selectedMeeting = Rx<Meeting?>(null);
+  final Rx<Map<String, dynamic>?> eventDetails = Rx<Map<String, dynamic>?>(null);
+  final RxBool isLoadingEventDetails = false.obs;
+  final RxString eventDetailsError = ''.obs;
 
   // Create meeting modal state
   final RxBool showCreateMeeting = false.obs;
 
-  // Meetings list (mock data - replace with API)
+  // All meetings from API (unfiltered)
+  final RxList<Meeting> allMeetings = <Meeting>[].obs;
+  
+  // Filtered meetings based on scope (everyone/myself)
   final RxList<Meeting> meetings = <Meeting>[].obs;
 
   // User data
   final RxString userEmail = ''.obs;
+  final RxInt userId = 0.obs;
+
+  // Events loading and error states
+  final RxBool isLoadingEvents = false.obs;
+  final RxString eventsError = ''.obs;
 
   @override
   void onInit() {
     super.onInit();
     _loadUserData();
-    _loadMockMeetings();
+    fetchAllEvents(); // Fetch events from API on init
   }
 
   /// Load user data from storage
   void _loadUserData() {
     userEmail.value = storage.read('userEmail') ?? '';
+    userId.value = storage.read('userId') ?? 0;
   }
 
   /// Load mock meetings
@@ -106,6 +120,202 @@ class CalendarController extends GetxController {
     ];
   }
 
+  /// Fetch all events from API
+  /// Called on init and when refreshing events
+  Future<void> fetchAllEvents() async {
+    try {
+      isLoadingEvents.value = true;
+      eventsError.value = '';
+      print('📅 [CalendarController] Fetching all events...');
+
+      final result = await _authService.getAllEvents();
+
+      isLoadingEvents.value = false;
+
+      if (result['success'] == true && result['data'] != null) {
+        final eventsData = result['data'];
+        
+        // Handle both single event object and list of events
+        List<dynamic> eventsList;
+        if (eventsData is List) {
+          eventsList = eventsData;
+        } else if (eventsData is Map) {
+          // If it's a single event, wrap it in a list
+          eventsList = [eventsData];
+        } else {
+          eventsList = [];
+        }
+
+        // Map API response to Meeting objects
+        final mappedMeetings = eventsList.map((eventData) {
+          return _mapEventToMeeting(eventData);
+        }).where((meeting) => meeting != null).cast<Meeting>().toList();
+
+        // Remove duplicates based on ID
+        final uniqueMeetings = <String, Meeting>{};
+        for (var meeting in mappedMeetings) {
+          uniqueMeetings[meeting.id] = meeting;
+        }
+
+        // Store all meetings (for "Everyone" view)
+        allMeetings.value = uniqueMeetings.values.toList();
+        
+        // Apply scope filter to update displayed meetings
+        _applyScopeFilter();
+        
+        print('✅ [CalendarController] Fetched ${allMeetings.length} events (${meetings.length} after filtering)');
+      } else {
+        eventsError.value = result['message'] ?? 'Failed to fetch events';
+        print('❌ [CalendarController] Failed to fetch events: ${result['message']}');
+        
+        // Clear all meetings on error
+        allMeetings.value = [];
+        meetings.value = [];
+      }
+    } catch (e) {
+      isLoadingEvents.value = false;
+      eventsError.value = 'An error occurred while fetching events';
+      print('💥 [CalendarController] Error fetching events: $e');
+      
+      // Clear all meetings on error
+      allMeetings.value = [];
+      meetings.value = [];
+    }
+  }
+
+  /// Map API event data to Meeting model
+  Meeting? _mapEventToMeeting(Map<String, dynamic> eventData) {
+    try {
+      // Extract date and time
+      final dateStr = eventData['date']?.toString() ?? '';
+      final startTimeStr = eventData['start_time']?.toString() ?? '';
+      final endTimeStr = eventData['end_time']?.toString() ?? '';
+
+      // Parse date
+      String formattedDate = '';
+      if (dateStr.isNotEmpty) {
+        try {
+          final date = DateTime.parse(dateStr.split('T')[0]);
+          formattedDate = date.toIso8601String().split('T')[0];
+        } catch (e) {
+          formattedDate = dateStr;
+        }
+      }
+
+      // Parse start time
+      String formattedStartTime = '';
+      if (startTimeStr.isNotEmpty) {
+        try {
+          if (startTimeStr.contains('T')) {
+            final timePart = startTimeStr.split('T')[1].split(':');
+            formattedStartTime = '${timePart[0]}:${timePart[1]}';
+          } else {
+            formattedStartTime = startTimeStr;
+          }
+        } catch (e) {
+          formattedStartTime = startTimeStr;
+        }
+      }
+
+      // Parse end time
+      String formattedEndTime = '';
+      if (endTimeStr.isNotEmpty) {
+        try {
+          if (endTimeStr.contains('T')) {
+            final timePart = endTimeStr.split('T')[1].split(':');
+            formattedEndTime = '${timePart[0]}:${timePart[1]}';
+          } else {
+            formattedEndTime = endTimeStr;
+          }
+        } catch (e) {
+          formattedEndTime = endTimeStr;
+        }
+      }
+
+      // Extract user information from API response
+      final currentUserEmail = storage.read('userEmail') ?? '';
+      final currentUserId = storage.read('userId') ?? 0;
+      
+      // Get creator info from API response
+      String creatorEmail = currentUserEmail;
+      int? eventUserId;
+      
+      // Extract user ID from event data
+      if (eventData['user'] != null && eventData['user'] is Map) {
+        final userData = eventData['user'] as Map<String, dynamic>;
+        eventUserId = userData['id'] is int 
+            ? userData['id'] as int 
+            : int.tryParse(userData['id']?.toString() ?? '');
+        
+        // Try to get email from user data, or construct from name
+        if (userData['email'] != null) {
+          creatorEmail = userData['email'].toString();
+        } else if (userData['first_name'] != null) {
+          // Construct email-like identifier from name
+          final firstName = userData['first_name'].toString().toLowerCase().replaceAll(' ', '');
+          creatorEmail = '$firstName@user.com';
+        }
+      } else if (eventData['created_by'] != null) {
+        if (eventData['created_by'] is Map) {
+          final createdByData = eventData['created_by'] as Map<String, dynamic>;
+          eventUserId = createdByData['id'] is int 
+              ? createdByData['id'] as int 
+              : int.tryParse(createdByData['id']?.toString() ?? '');
+        } else {
+          eventUserId = eventData['created_by'] is int 
+              ? eventData['created_by'] as int 
+              : int.tryParse(eventData['created_by']?.toString() ?? '');
+        }
+      } else if (eventData['user_id'] != null) {
+        eventUserId = eventData['user_id'] is int 
+            ? eventData['user_id'] as int 
+            : int.tryParse(eventData['user_id']?.toString() ?? '');
+      }
+
+      // Extract event type name
+      String? eventTypeName;
+      if (eventData['event_type'] != null && eventData['event_type'] is Map) {
+        final eventTypeData = eventData['event_type'] as Map<String, dynamic>;
+        eventTypeName = eventTypeData['event_name']?.toString();
+      }
+
+      // Extract status
+      final status = eventData['status']?.toString() ?? 
+                    eventData['type']?.toString() ?? 
+                    'confirmed';
+
+      return Meeting(
+        id: eventData['id']?.toString() ?? '',
+        title: eventData['title']?.toString() ?? 'Untitled Event',
+        date: formattedDate,
+        startTime: formattedStartTime,
+        endTime: formattedEndTime,
+        primaryEventType: eventData['primaryEventType']?.toString() ?? 
+                         eventTypeName,
+        meetingType: eventData['meetingType']?.toString() ?? 
+                    eventData['meeting_type']?.toString(),
+        type: status,
+        creator: creatorEmail,
+        attendees: eventData['attendees'] != null 
+            ? List<String>.from(eventData['attendees'])
+            : [creatorEmail],
+        category: eventData['category']?.toString() ?? 'meeting',
+        description: eventData['description']?.toString(),
+        userId: eventUserId, // Store user ID for filtering
+      );
+    } catch (e) {
+      print('⚠️ [CalendarController] Error mapping event: $e');
+      return null;
+    }
+  }
+
+  /// Refresh events from API
+  /// Called after creating/updating events to reload calendar data
+  void refreshEvents() {
+    print('🔄 [CalendarController] Refreshing events...');
+    fetchAllEvents();
+  }
+
   /// Change view type (day/week/month)
   void setViewType(String type) {
     viewType.value = type;
@@ -115,6 +325,24 @@ class CalendarController extends GetxController {
   /// Change scope type (everyone/myself)
   void setScopeType(String type) {
     scopeType.value = type;
+    _applyScopeFilter(); // Re-filter meetings when scope changes
+  }
+
+  /// Apply scope filter to meetings
+  /// Everyone: Show all events
+  /// Myself: Show only events where user is creator or attendee
+  void _applyScopeFilter() {
+    if (scopeType.value == 'myself') {
+      // Filter to show only user's events
+      meetings.value = allMeetings.where((meeting) {
+        return isUserInvited(meeting);
+      }).toList();
+      print('🔍 [CalendarController] Filtered to ${meetings.length} events for "Myself" view');
+    } else {
+      // Show all events for "Everyone" view
+      meetings.value = List.from(allMeetings);
+      print('👥 [CalendarController] Showing all ${meetings.length} events for "Everyone" view');
+    }
   }
 
   /// Navigate to previous period
@@ -163,8 +391,11 @@ class CalendarController extends GetxController {
 
   /// Navigate to today
   void navigateToToday() {
-    currentDate.value = DateTime.now();
+    final now = DateTime.now();
+    // Always set to today's date, resetting time to start of day
+    currentDate.value = DateTime(now.year, now.month, now.day);
     selectedWeekDate.value = null;
+    print('📅 [CalendarController] Navigated to today: ${currentDate.value}');
   }
 
   /// Set current date from calendar picker
@@ -235,10 +466,22 @@ class CalendarController extends GetxController {
   }
 
   /// Check if user is invited to meeting
+  /// Checks both user ID (from API) and email (for compatibility)
   bool isUserInvited(Meeting meeting) {
-    if (userEmail.value.isEmpty) return false;
-    return meeting.attendees.contains(userEmail.value) ||
-        meeting.creator == userEmail.value;
+    // Check by user ID (preferred method - works for both login types)
+    if (userId.value > 0 && meeting.userId != null) {
+      if (meeting.userId == userId.value) {
+        return true;
+      }
+    }
+    
+    // Fallback to email check (for backward compatibility)
+    if (userEmail.value.isNotEmpty) {
+      return meeting.attendees.contains(userEmail.value) ||
+          meeting.creator == userEmail.value;
+    }
+    
+    return false;
   }
 
   /// Filter meetings based on scope and date
@@ -275,7 +518,7 @@ class CalendarController extends GetxController {
 
   /// Get dynamic time range based on meetings
   TimeRange getTimeRange(List<Meeting> meetings) {
-    const defaultStart = 9; // 9 AM
+    const defaultStart = 6; // 6 AM (as shown in screenshots)
     const defaultEnd = 18; // 6 PM
 
     if (meetings.isEmpty) {
@@ -303,8 +546,8 @@ class CalendarController extends GetxController {
       }
     }
 
-    earliestHour = earliestHour.clamp(0, 23);
-    latestHour = latestHour.clamp(0, 23);
+    earliestHour = earliestHour.clamp(6, 23); // Minimum 6 AM
+    latestHour = latestHour.clamp(6, 23);
 
     return TimeRange(startHour: earliestHour, endHour: latestHour);
   }
@@ -431,14 +674,50 @@ class CalendarController extends GetxController {
     showCreateMeeting.value = false;
   }
 
-  /// Open meeting detail
-  void openMeetingDetail(Meeting meeting) {
+  /// Open meeting detail and fetch full details from API
+  Future<void> openMeetingDetail(Meeting meeting) async {
     selectedMeeting.value = meeting;
+    eventDetails.value = null;
+    eventDetailsError.value = '';
+    isLoadingEventDetails.value = true;
+
+    try {
+      // Extract event ID from meeting
+      final eventId = int.tryParse(meeting.id);
+      if (eventId == null) {
+        isLoadingEventDetails.value = false;
+        eventDetailsError.value = 'Invalid event ID';
+        print('⚠️ [CalendarController] Invalid event ID: ${meeting.id}');
+        return;
+      }
+
+      print('📅 [CalendarController] Fetching event details for ID: $eventId');
+
+      // Fetch event details from API
+      final result = await _authService.getSingleEvent(eventId: eventId);
+
+      isLoadingEventDetails.value = false;
+
+      if (result['success'] == true && result['data'] != null) {
+        eventDetails.value = result['data'];
+        print('✅ [CalendarController] Event details fetched successfully');
+      } else {
+        eventDetailsError.value = result['message'] ?? 'Failed to fetch event details';
+        print('❌ [CalendarController] Failed to fetch event details: ${result['message']}');
+      }
+    } catch (e) {
+      isLoadingEventDetails.value = false;
+      eventDetailsError.value = 'An error occurred while fetching event details';
+      print('💥 [CalendarController] Error fetching event details: $e');
+    }
   }
 
   /// Close meeting detail
   void closeMeetingDetail() {
     selectedMeeting.value = null;
+    eventDetails.value = null;
+    eventDetailsError.value = '';
+    isLoadingEventDetails.value = false;
   }
 
   /// Handle day click in month view
@@ -463,6 +742,7 @@ class Meeting {
   final List<String> attendees;
   final String? category;
   final String? description;
+  final int? userId; // User ID from API (for filtering "Myself" view)
 
   Meeting({
     required this.id,
@@ -477,6 +757,7 @@ class Meeting {
     required this.attendees,
     this.category,
     this.description,
+    this.userId,
   });
 
   Map<String, dynamic> toJson() => {
@@ -507,6 +788,9 @@ class Meeting {
     attendees: List<String>.from(json['attendees'] ?? []),
     category: json['category'],
     description: json['description'],
+    userId: json['userId'] is int 
+        ? json['userId'] as int 
+        : int.tryParse(json['userId']?.toString() ?? ''),
   );
 }
 

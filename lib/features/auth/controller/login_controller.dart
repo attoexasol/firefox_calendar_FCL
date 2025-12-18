@@ -48,8 +48,8 @@ class LoginController extends GetxController {
 
   @override
   void onClose() {
-    emailController.dispose();
-    passwordController.dispose();
+    // emailController.dispose();
+    // passwordController.dispose();
     super.onClose();
   }
 
@@ -294,7 +294,42 @@ class LoginController extends GetxController {
         return;
       }
 
-      // ✅ Check if device supports biometrics
+      // Step 1: Check if biometric is enabled
+      final isBiometricEnable = storage.read('is_biometric_enable') ?? false;
+      print('🔍 [LoginController] is_biometric_enable: $isBiometricEnable');
+
+      if (!isBiometricEnable) {
+        isBiometricLoading.value = false;
+        loginError.value = 'Biometric login is not enabled. Please enable it from Settings.';
+        return;
+      }
+
+      // Step 2: Check if biometric API token is available
+      // Try biometric_api_token first (from enrollment), fallback to current apiToken
+      var biometricApiToken = storage.read('biometric_api_token') ?? '';
+      if (biometricApiToken.isEmpty) {
+        // Fallback to current session apiToken
+        biometricApiToken = storage.read('apiToken') ?? '';
+      }
+      print('🔍 [LoginController] biometric_api_token: ${biometricApiToken.isNotEmpty ? "exists" : "missing"}');
+
+      if (biometricApiToken.isEmpty) {
+        isBiometricLoading.value = false;
+        loginError.value = 'Biometric token not found. Please enable biometric login from Settings.';
+        return;
+      }
+
+      // Step 3: Check if biometric_token is available (from previous login)
+      final biometricToken = storage.read('biometric_token') ?? '';
+      print('🔍 [LoginController] biometric_token: ${biometricToken.isNotEmpty ? "exists" : "missing"}');
+
+      if (biometricToken.isEmpty) {
+        isBiometricLoading.value = false;
+        loginError.value = 'Biometric token not found. Please login with username and password first.';
+        return;
+      }
+
+      // Step 4: Check if device supports biometrics
       final isAvailable = await _biometricService.isBiometricAvailable();
       if (!isAvailable) {
         isBiometricLoading.value = false;
@@ -302,7 +337,8 @@ class LoginController extends GetxController {
         return;
       }
 
-      // ✅ Show biometric popup (Fingerprint / Face ID)
+      // Step 5: Show biometric popup (Fingerprint / Face ID)
+      print('🔐 [LoginController] Requesting device-level biometric authentication...');
       final authenticated = await _biometricService.authenticateForLogin();
 
       if (!authenticated) {
@@ -311,82 +347,47 @@ class LoginController extends GetxController {
         return;
       }
 
-      // ✅ FORCE enable biometric after first success
-      await storage.write('biometricEnabled', true);
-      await storage.write('lastBiometricLogin', DateTime.now().toIso8601String());
+      print('✅ [LoginController] Device biometric authenticated, calling biometric login API...');
 
-      // ✅ Auto-create / restore session using stored credentials
-      final savedEmail = storage.read('userEmail') ?? storage.read('lastLoginEmail') ?? '';
-      
-      if (savedEmail.isEmpty) {
+      // Step 6: Call biometric login API
+      final loginResult = await _authService.biometricLogin(
+        apiToken: biometricApiToken,
+        biometricToken: biometricToken,
+      );
+
+      if (loginResult['success'] != true) {
         isBiometricLoading.value = false;
-        loginError.value = 'No saved credentials found. Please login with username and password first.';
+        loginError.value = loginResult['message'] ?? 'Biometric login failed. Please try again.';
+        print('❌ [LoginController] Biometric login API failed: ${loginResult['message']}');
         return;
       }
 
-      // ✅ Preserve existing user data (userId, apiToken, etc.) from previous login
-      // Only update session-related fields
-      final existingUserId = storage.read('userId');
-      final existingApiToken = storage.read('apiToken');
-      final existingFirstName = storage.read('firstName');
-      final existingLastName = storage.read('lastName');
-      final existingUserName = storage.read('userName');
-      final existingProfilePicture = storage.read('userProfilePicture');
+      // Step 7: Biometric login successful - user data is already stored by AuthService
+      print('✅ [LoginController] Biometric login API successful');
       
-      print('🔍 [LoginController] Biometric login - Checking stored data:');
-      print('   userId: $existingUserId');
-      print('   apiToken: ${existingApiToken != null && existingApiToken.toString().isNotEmpty ? "exists" : "missing"}');
-      print('   email: $savedEmail');
-      
-      // Set session data
-      await storage.write('isLoggedIn', true);
-      await storage.write('userEmail', savedEmail);
-      final sessionExpiry = DateTime.now().add(const Duration(days: 30));
-      await storage.write('sessionExpiry', sessionExpiry.toIso8601String());
-      await storage.write('loginTimestamp', DateTime.now().toIso8601String());
-      
-      // ✅ Preserve user ID and other user data if they exist
-      if (existingUserId != null && existingUserId != 0) {
-        await storage.write('userId', existingUserId);
-        print('✅ [LoginController] Preserved userId: $existingUserId');
-      } else {
-        // If userId is missing, we need to fetch it from the API
-        // But we need the password for that, which we don't store
-        // So we'll show an error and ask user to login with username/password
-        print('⚠️ [LoginController] No userId found in storage. User may need to login with username/password first.');
-        
-        // Check if we have an API token - if yes, we might be able to fetch user profile
-        if (existingApiToken != null && existingApiToken.toString().isNotEmpty) {
-          print('ℹ️ [LoginController] API token found, but userId is missing. User should login with username/password to restore full session.');
-        } else {
-          isBiometricLoading.value = false;
-          loginError.value = 'Session expired. Please login with username and password to restore your profile.';
-          return;
-        }
-      }
-      
-      // Preserve API token if it exists
-      if (existingApiToken != null && existingApiToken.toString().isNotEmpty) {
-        await storage.write('apiToken', existingApiToken);
-        print('✅ [LoginController] Preserved apiToken');
-      }
-      
-      // Preserve user profile data if it exists
-      if (existingFirstName != null) await storage.write('firstName', existingFirstName);
-      if (existingLastName != null) await storage.write('lastName', existingLastName);
-      if (existingUserName != null) await storage.write('userName', existingUserName);
-      if (existingProfilePicture != null) await storage.write('userProfilePicture', existingProfilePicture);
+      // Update last biometric login timestamp
+      await storage.write('lastBiometricLogin', DateTime.now().toIso8601String());
 
-      // Verify userId is stored after biometric login
+      // Verify user data was stored correctly
       final storedUserId = storage.read('userId');
-      print('✅ [LoginController] Biometric login complete. Stored userId: $storedUserId');
+      final storedApiToken = storage.read('apiToken');
+      final storedEmail = storage.read('userEmail');
       
+      print('✅ [LoginController] Biometric login complete:');
+      print('   userId: $storedUserId');
+      print('   apiToken: ${storedApiToken != null && storedApiToken.toString().isNotEmpty ? "exists" : "missing"}');
+      print('   email: $storedEmail');
+
       if (storedUserId == null || storedUserId == 0) {
-        print('⚠️ [LoginController] WARNING: userId is still missing after biometric login!');
+        print('⚠️ [LoginController] WARNING: userId is missing after biometric login!');
+        isBiometricLoading.value = false;
+        loginError.value = 'User data not found. Please login with username and password.';
+        return;
       }
 
       isBiometricLoading.value = false;
 
+      // Show success message
       Get.snackbar(
         'Success',
         'Biometric login successful',
@@ -396,7 +397,8 @@ class LoginController extends GetxController {
         duration: const Duration(seconds: 1),
       );
 
-      // ✅ ✅ ✅ FINAL DASHBOARD NAVIGATION
+      // Navigate to dashboard
+      print('🚀 [LoginController] Navigating to dashboard after biometric login');
       _navigateToDashboard();
 
     } catch (e) {

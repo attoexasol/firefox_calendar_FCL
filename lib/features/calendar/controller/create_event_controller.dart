@@ -1,3 +1,5 @@
+import 'package:firefox_calendar/features/calendar/controller/calendar_controller.dart';
+import 'package:firefox_calendar/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -8,6 +10,7 @@ import 'package:get_storage/get_storage.dart';
 class CreateEventController extends GetxController {
   // Storage
   final storage = GetStorage();
+  final AuthService _authService = AuthService();
 
   // Form controllers
   final titleController = TextEditingController();
@@ -39,6 +42,29 @@ class CreateEventController extends GetxController {
     'Annual Leave',
     'Personal Leave',
   ];
+
+  /// Map event type string to event_type_id
+  /// NOTE: Currently using ID 1 for all types as per API example
+  /// TODO: Update this mapping based on actual API event type IDs
+  /// The API may require fetching valid event types from an endpoint
+  int? getEventTypeId(String eventType) {
+    // Using ID 1 for all event types as shown in the API example
+    // This may need to be adjusted based on actual API requirements
+    // If the API provides an endpoint to fetch event types, use that instead
+    return 1;
+    
+    // Original mapping (commented out - API rejected these IDs)
+    // const eventTypeMap = {
+    //   'Team Meeting': 1,
+    //   'One-on-one': 2,
+    //   'Client meeting': 3,
+    //   'Training': 4,
+    //   'Personal Appointment': 5,
+    //   'Annual Leave': 6,
+    //   'Personal Leave': 7,
+    // };
+    // return eventTypeMap[eventType];
+  }
 
   @override
   void onInit() {
@@ -139,6 +165,31 @@ class CreateEventController extends GetxController {
       return false;
     }
 
+    // Validate event type
+    if (eventType.value.isEmpty) {
+      Get.snackbar(
+        'Validation Error',
+        'Please select event type',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+      );
+      return false;
+    }
+
+    // Validate event type ID mapping
+    final eventTypeId = getEventTypeId(eventType.value);
+    if (eventTypeId == null) {
+      Get.snackbar(
+        'Validation Error',
+        'Invalid event type selected',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+      );
+      return false;
+    }
+
     // Validate time range
     final startParts = startTime.value.split(':');
     final endParts = endTime.value.split(':');
@@ -178,66 +229,79 @@ class CreateEventController extends GetxController {
 
   /// Handle event creation or update
   Future<void> handleSubmit() async {
+    // Prevent duplicate submissions
+    if (isLoading.value) {
+      print('⚠️ [CreateEventController] Submission already in progress');
+      return;
+    }
+
     if (!validateForm()) return;
 
     isLoading.value = true;
 
     try {
-      // Determine category based on event type (from React logic)
-      final isLeaveType =
-          eventType.value == 'Annual Leave' ||
-          eventType.value == 'Personal Leave';
-      final category = isLeaveType ? 'leave' : 'meeting';
-
-      // Map event type to meeting type (from React logic)
-      String meetingType = 'other';
-      if (eventType.value == 'Team Meeting') {
-        meetingType = 'team-meeting';
-      } else if (eventType.value == 'One-on-one') {
-        meetingType = 'one-on-one';
-      } else if (eventType.value == 'Client meeting') {
-        meetingType = 'client-meeting';
-      } else if (eventType.value == 'Training') {
-        meetingType = 'training';
+      // Get event type ID
+      final eventTypeId = getEventTypeId(eventType.value);
+      if (eventTypeId == null) {
+        isLoading.value = false;
+        Get.snackbar(
+          'Error',
+          'Invalid event type selected',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+        );
+        return;
       }
 
-      final eventData = {
-        'title': titleController.text.trim(),
-        'date': selectedDate.value!.toIso8601String().split('T')[0],
-        'startTime': startTime.value,
-        'endTime': endTime.value,
-        'type': status.value,
-        'category': category,
-        'meetingType': meetingType,
-        'primaryEventType': eventType.value.isNotEmpty ? eventType.value : null,
-        'description': descriptionController.text.trim().isNotEmpty
-            ? descriptionController.text.trim()
-            : null,
-        'creator': userEmail.value,
-        'attendees': [userEmail.value],
-      };
+      // Format date (YYYY-MM-DD)
+      final dateStr = selectedDate.value!.toIso8601String().split('T')[0];
 
-      // Simulate API call
-      await Future.delayed(const Duration(milliseconds: 500));
+      // Format start_time and end_time (YYYY-MM-DD HH:MM:SS)
+      final startDateTime = '${dateStr} ${startTime.value}:00';
+      final endDateTime = '${dateStr} ${endTime.value}:00';
+
+      print('📅 [CreateEventController] Creating event...');
+      print('   Title: ${titleController.text.trim()}');
+      print('   Date: $dateStr');
+      print('   Start Time: $startDateTime');
+      print('   End Time: $endDateTime');
+      print('   Event Type ID: $eventTypeId');
+      print('   Description: ${descriptionController.text.trim()}');
 
       if (isEditMode.value) {
         // Update existing event
-        // TODO: Replace with actual API call
-        print('✅ Event updated: $eventData');
-
+        // TODO: Implement update event API when available
+        isLoading.value = false;
         Get.snackbar(
-          'Success',
-          'Event updated successfully',
+          'Info',
+          'Event update functionality coming soon',
           snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.green.shade100,
-          colorText: Colors.green.shade900,
+          backgroundColor: Colors.blue.shade100,
+          colorText: Colors.blue.shade900,
           duration: const Duration(seconds: 2),
         );
-      } else {
-        // Create new event
-        // TODO: Replace with actual API call
-        print('✅ Event created: $eventData');
+        return;
+      }
 
+      // Create new event via API
+      final result = await _authService.createEvent(
+        title: titleController.text.trim(),
+        date: dateStr,
+        startTime: startDateTime,
+        endTime: endDateTime,
+        description: descriptionController.text.trim().isNotEmpty
+            ? descriptionController.text.trim()
+            : null,
+        eventTypeId: eventTypeId,
+      );
+
+      isLoading.value = false;
+
+      if (result['success'] == true) {
+        print('✅ [CreateEventController] Event created successfully');
+
+        // Show success message
         Get.snackbar(
           'Success',
           'Event created successfully and will appear in all calendar views',
@@ -246,27 +310,46 @@ class CreateEventController extends GetxController {
           colorText: Colors.green.shade900,
           duration: const Duration(seconds: 2),
         );
+
+        // Refresh calendar events
+        try {
+          final calendarController = Get.find<CalendarController>();
+          calendarController.refreshEvents();
+        } catch (e) {
+          print('⚠️ [CreateEventController] Could not refresh calendar: $e');
+        }
+
+        // Navigate back to previous screen
+        Get.back();
+
+        // Reset form for next use
+        resetForm();
+      } else {
+        // Show error message
+        final errorMessage = result['message'] ?? 'Failed to create event. Please try again.';
+        Get.snackbar(
+          'Error',
+          errorMessage,
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        print('❌ [CreateEventController] Event creation failed: $errorMessage');
       }
-
-      isLoading.value = false;
-
-      // Navigate back to previous screen
-      Get.back();
-
-      // Reset form for next use
-      resetForm();
     } catch (e) {
       isLoading.value = false;
 
       Get.snackbar(
         'Error',
-        'Failed to ${isEditMode.value ? 'update' : 'create'} event',
+        'Failed to create event. Please try again.',
         snackPosition: SnackPosition.BOTTOM,
         backgroundColor: Colors.red.shade100,
         colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 3),
       );
 
-      print('Error creating/updating event: $e');
+      print('💥 [CreateEventController] Error creating event: $e');
     }
   }
 
