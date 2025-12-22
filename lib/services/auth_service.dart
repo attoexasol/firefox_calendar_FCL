@@ -25,6 +25,7 @@ class AuthService {
   static const String createEventEndpoint = '$baseUrl/create/events';
   static const String getSingleEventEndpoint = '$baseUrl/single/events';
   static const String getAllEventsEndpoint = '$baseUrl/all/events';
+  static const String getMyEventsEndpoint = '$baseUrl/my/events';
   
   // =========================================================
   // DEPENDENCIES
@@ -310,38 +311,56 @@ class AuthService {
   }
 
   Future<Map<String, dynamic>> logoutUser() async {
-  print("🔵 [AuthService] Logout started");
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] User Logout');
+    print('═══════════════════════════════════════════════════════════');
 
-  final apiToken = _storage.read('apiToken') ?? '';
+    final apiToken = _storage.read('apiToken') ?? '';
 
-  try {
-    if (apiToken.isNotEmpty) {
-      final response = await http.post(
-        Uri.parse(logoutEndpoint),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: json.encode({
+    try {
+      if (apiToken.isNotEmpty) {
+        final requestData = {
           'api_token': apiToken,
-        }),
-      );
+        };
 
-      print("🔵 [AuthService] Logout response: ${response.body}");
+        // Log request details
+        print('📍 URL: $logoutEndpoint');
+        print('🔷 METHOD: POST');
+        print('📤 REQUEST HEADERS:');
+        print('   Content-Type: application/json');
+        print('   Accept: application/json');
+        print('📤 REQUEST BODY:');
+        print('   ${json.encode(requestData)}');
+
+        final response = await http.post(
+          Uri.parse(logoutEndpoint),
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+          body: json.encode(requestData),
+        );
+
+        // Log response details
+        print('📥 RESPONSE STATUS: ${response.statusCode}');
+        print('📥 RESPONSE BODY:');
+        print('   ${response.body}');
+        print('═══════════════════════════════════════════════════════════');
+      }
+    } catch (e) {
+      print('⚠️ [API ERROR] Logout API error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      // Ignore API failure
+    } finally {
+      // 🔥 ALWAYS clear local session
+      await clearUserSession();
     }
-  } catch (e) {
-    print("⚠️ [AuthService] Logout API error: $e");
-    // Ignore API failure
-  } finally {
-    // 🔥 ALWAYS clear local session
-    await clearUserSession();
-  }
 
-  return {
-    'success': true,
-    'message': 'Logged out successfully',
-  };
-}
+    return {
+      'success': true,
+      'message': 'Logged out successfully',
+    };
+  }
 
   // =========================================================
   // BIOMETRIC REGISTER API
@@ -354,13 +373,22 @@ class AuthService {
     required String apiToken,
   }) async {
     try {
-      print('🔐 [AuthService] Starting biometric registration...');
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [API CALL] Register Biometric');
+      print('═══════════════════════════════════════════════════════════');
       
       final requestData = {
         'api_token': apiToken,
       };
 
-      print('🔐 [AuthService] Biometric register request with api_token');
+      // Log request details
+      print('📍 URL: $biometricRegisterEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
 
       final response = await http.post(
         Uri.parse(biometricRegisterEndpoint),
@@ -371,12 +399,16 @@ class AuthService {
         body: json.encode(requestData),
       );
 
-      print('🔐 [AuthService] Biometric register response status: ${response.statusCode}');
-      print('🔐 [AuthService] Biometric register response body: ${response.body}');
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
 
       return _handleResponse(response, 'Biometric Register');
     } catch (e) {
-      print('💥 [AuthService] Biometric register error: $e');
+      print('❌ [API ERROR] Biometric register failed: $e');
+      print('═══════════════════════════════════════════════════════════');
       return {
         'success': false,
         'message': 'Network error. Please check your connection.',
@@ -397,14 +429,23 @@ class AuthService {
     required String biometricToken,
   }) async {
     try {
-      print('🔐 [AuthService] Starting biometric login...');
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [API CALL] Biometric Login');
+      print('═══════════════════════════════════════════════════════════');
       
       final requestData = {
         'api_token': apiToken,
         'biometric_token': biometricToken,
       };
 
-      print('🔐 [AuthService] Biometric login request');
+      // Log request details
+      print('📍 URL: $biometricLoginEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
 
       final response = await http.post(
         Uri.parse(biometricLoginEndpoint),
@@ -415,8 +456,11 @@ class AuthService {
         body: json.encode(requestData),
       );
 
-      print('🔐 [AuthService] Biometric login response status: ${response.statusCode}');
-      print('🔐 [AuthService] Biometric login response body: ${response.body}');
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
 
       final result = _handleResponse(response, 'Biometric Login');
       
@@ -427,7 +471,8 @@ class AuthService {
       
       return result;
     } catch (e) {
-      print('💥 [AuthService] Biometric login error: $e');
+      print('❌ [API ERROR] Biometric login failed: $e');
+      print('═══════════════════════════════════════════════════════════');
       return {
         'success': false,
         'message': 'Network error. Please check your connection.',
@@ -452,11 +497,14 @@ class AuthService {
     required int eventTypeId,
   }) async {
     try {
-      print('📅 [AuthService] Starting event creation...');
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [API CALL] Create Event');
+      print('═══════════════════════════════════════════════════════════');
       
       final apiToken = _storage.read('apiToken') ?? '';
       
       if (apiToken.isEmpty) {
+        print('❌ [API ERROR] API token not found');
         return {
           'success': false,
           'message': 'Authentication token not found. Please log in again.',
@@ -477,7 +525,14 @@ class AuthService {
         requestData['description'] = description.trim();
       }
 
-      print('📅 [AuthService] Create event request: $requestData');
+      // Log request details
+      print('📍 URL: $createEventEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
 
       final response = await http.post(
         Uri.parse(createEventEndpoint),
@@ -488,12 +543,16 @@ class AuthService {
         body: json.encode(requestData),
       );
 
-      print('📅 [AuthService] Create event response status: ${response.statusCode}');
-      print('📅 [AuthService] Create event response body: ${response.body}');
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
 
       return _handleResponse(response, 'Create Event');
     } catch (e) {
-      print('💥 [AuthService] Create event error: $e');
+      print('❌ [API ERROR] Create event failed: $e');
+      print('═══════════════════════════════════════════════════════════');
       return {
         'success': false,
         'message': 'Network error. Please check your connection.',
@@ -506,18 +565,21 @@ class AuthService {
   // GET SINGLE EVENT API
   // =========================================================
 
-  /// Get single event details by ID
+  /// Get single by ID
   /// Parameters: eventId
   /// Returns: Map with success status, message, and event data
   Future<Map<String, dynamic>> getSingleEvent({
     required int eventId,
   }) async {
     try {
-      print('📅 [AuthService] Starting get single event...');
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [API CALL] Get Single Event');
+      print('═══════════════════════════════════════════════════════════');
       
       final apiToken = _storage.read('apiToken') ?? '';
       
       if (apiToken.isEmpty) {
+        print('❌ [API ERROR] API token not found');
         return {
           'success': false,
           'message': 'Authentication token not found. Please log in again.',
@@ -528,7 +590,14 @@ class AuthService {
         'id': eventId,
       };
 
-      print('📅 [AuthService] Get single event request: $requestData');
+      // Log request details
+      print('📍 URL: $getSingleEventEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
 
       final response = await http.post(
         Uri.parse(getSingleEventEndpoint),
@@ -539,12 +608,16 @@ class AuthService {
         body: json.encode(requestData),
       );
 
-      print('📅 [AuthService] Get single event response status: ${response.statusCode}');
-      print('📅 [AuthService] Get single event response body: ${response.body}');
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
 
       return _handleResponse(response, 'Get Single Event');
     } catch (e) {
-      print('💥 [AuthService] Get single event error: $e');
+      print('❌ [API ERROR] Get single event failed: $e');
+      print('═══════════════════════════════════════════════════════════');
       return {
         'success': false,
         'message': 'Network error. Please check your connection.',
@@ -558,46 +631,72 @@ class AuthService {
   // =========================================================
 
   /// Get all events for the logged-in user
-  /// Parameters: Optional event_type_id, sub_type_name, sub_type_description
+  /// Parameters: Optional range (day/week/month), currentDate (YYYY-MM-DD), event_type_id, sub_type_name, sub_type_description
   /// Returns: Map with success status, message, and list of events
   Future<Map<String, dynamic>> getAllEvents({
+    String? range,
+    String? currentDate,
     int? eventTypeId,
     String? subTypeName,
     String? subTypeDescription,
   }) async {
     try {
-      print('📅 [AuthService] Starting get all events...');
-      
       final apiToken = _storage.read('apiToken') ?? '';
       
       if (apiToken.isEmpty) {
+        print('❌ [API ERROR] Get All Events: API token not found');
+        print('═══════════════════════════════════════════════════════════');
         return {
           'success': false,
           'message': 'Authentication token not found. Please log in again.',
         };
       }
 
-      final requestData = {
+      final queryParams = <String, dynamic>{
         'api_token': apiToken,
       };
 
-      // Add optional parameters if provided
-      if (eventTypeId != null) {
-        requestData['event_type_id'] = eventTypeId;
+      // Add date/range parameters if provided (for day/week/month filtering)
+      if (range != null && range.isNotEmpty) {
+        queryParams['range'] = range;
       }
-      if (subTypeName != null && subTypeName.isNotEmpty) {
-        requestData['sub_type_name'] = subTypeName;
-      }
-      if (subTypeDescription != null && subTypeDescription.isNotEmpty) {
-        requestData['sub_type_description'] = subTypeDescription;
+      if (currentDate != null && currentDate.isNotEmpty) {
+        queryParams['current_date'] = currentDate;
       }
 
-      print('📅 [AuthService] Get all events request: $requestData');
+      // Add optional event type parameters if provided
+      if (eventTypeId != null) {
+        queryParams['event_type_id'] = eventTypeId;
+      }
+      if (subTypeName != null && subTypeName.isNotEmpty) {
+        queryParams['sub_type_name'] = subTypeName;
+      }
+      if (subTypeDescription != null && subTypeDescription.isNotEmpty) {
+        queryParams['sub_type_description'] = subTypeDescription;
+      }
 
       // Build URL with query parameters (GET request)
       final uri = Uri.parse(getAllEventsEndpoint).replace(
-        queryParameters: requestData.map((key, value) => MapEntry(key, value.toString())),
+        queryParameters: queryParams.map((key, value) => MapEntry(key, value.toString())),
       );
+
+      // Log request details
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [API CALL] Get All Events');
+      print('═══════════════════════════════════════════════════════════');
+      print('📍 URL: $uri');
+      print('🔷 METHOD: GET');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 QUERY PARAMETERS:');
+      queryParams.forEach((key, value) {
+        if (key == 'api_token') {
+          print('   $key: ${value.toString().substring(0, 20)}...');
+        } else {
+          print('   $key: $value');
+        }
+      });
 
       final response = await http.get(
         uri,
@@ -607,12 +706,94 @@ class AuthService {
         },
       );
 
-      print('📅 [AuthService] Get all events response status: ${response.statusCode}');
-      print('📅 [AuthService] Get all events response body: ${response.body}');
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
 
       return _handleResponse(response, 'Get All Events');
     } catch (e) {
-      print('💥 [AuthService] Get all events error: $e');
+      print('❌ [API ERROR] Get All Events failed: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // GET MY EVENTS API
+  // =========================================================
+
+  /// Get current user's events
+  /// Parameters: range (day/week/month), currentDate (YYYY-MM-DD)
+  /// Returns: Map with success status, message, meta, and list of events
+  Future<Map<String, dynamic>> getMyEvents({
+    required String range,
+    required String currentDate,
+  }) async {
+    try {
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [API CALL] Get My Events');
+      print('═══════════════════════════════════════════════════════════');
+      
+      final apiToken = _storage.read('apiToken') ?? '';
+      
+      if (apiToken.isEmpty) {
+        print('❌ [API ERROR] API token not found');
+        return {
+          'success': false,
+          'message': 'Authentication token not found. Please log in again.',
+        };
+      }
+
+      // Build URL with query parameters (GET request)
+      final queryParams = {
+        'api_token': apiToken,
+        'range': range,
+        'current_date': currentDate,
+      };
+
+      final uri = Uri.parse(getMyEventsEndpoint).replace(
+        queryParameters: queryParams,
+      );
+
+      // Log request details
+      print('📍 URL: $uri');
+      print('🔷 METHOD: GET');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 QUERY PARAMETERS:');
+      queryParams.forEach((key, value) {
+        if (key == 'api_token') {
+          print('   $key: ${value.toString().substring(0, 20)}...');
+        } else {
+          print('   $key: $value');
+        }
+      });
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      return _handleResponse(response, 'Get My Events');
+    } catch (e) {
+      print('❌ [API ERROR] Get my events failed: $e');
+      print('═══════════════════════════════════════════════════════════');
       return {
         'success': false,
         'message': 'Network error. Please check your connection.',
@@ -635,11 +816,11 @@ class AuthService {
         final responseData = json.decode(response.body);
         
         if (responseData['status'] == true) {
-          print('âœ… [AuthService] $operation successful');
           return {
             'success': true,
             'message': responseData['message'] ?? '$operation successful',
             'data': responseData['data'],
+            'meta': responseData['meta'], // Include meta for my/events endpoint
           };
         } else {
           print('âŒ [AuthService] $operation failed: ${responseData['message']}');

@@ -61,74 +61,62 @@ class CalendarController extends GetxController {
   void _loadUserData() {
     userEmail.value = storage.read('userEmail') ?? '';
     userId.value = storage.read('userId') ?? 0;
+    print('👤 [CalendarController] Loaded user data:');
+    print('   userId: ${userId.value}');
+    print('   userEmail: ${userEmail.value}');
   }
 
-  /// Load mock meetings
-  /// TODO: Replace with actual API call
-  void _loadMockMeetings() {
-    // Mock data - replace with actual API call
-    final now = DateTime.now();
-
-    meetings.value = [
-      Meeting(
-        id: '1',
-        title: 'Team Standup',
-        date: now.toIso8601String().split('T')[0],
-        startTime: '10:00',
-        endTime: '10:30',
-        primaryEventType: 'Team Meeting',
-        meetingType: 'team-meeting',
-        type: 'confirmed',
-        creator: userEmail.value,
-        attendees: [userEmail.value],
-        category: 'meeting',
-      ),
-      Meeting(
-        id: '2',
-        title: 'Client Meeting',
-        date: DateTime(
-          now.year,
-          now.month,
-          now.day + 1,
-        ).toIso8601String().split('T')[0],
-        startTime: '14:00',
-        endTime: '15:00',
-        primaryEventType: 'Client meeting',
-        meetingType: 'client-meeting',
-        type: 'confirmed',
-        creator: userEmail.value,
-        attendees: [userEmail.value],
-        category: 'meeting',
-      ),
-      Meeting(
-        id: '3',
-        title: 'Training Session',
-        date: DateTime(
-          now.year,
-          now.month,
-          now.day + 2,
-        ).toIso8601String().split('T')[0],
-        startTime: '11:00',
-        endTime: '12:00',
-        primaryEventType: 'Training',
-        meetingType: 'training',
-        type: 'confirmed',
-        creator: userEmail.value,
-        attendees: [userEmail.value],
-        category: 'meeting',
-      ),
-    ];
+  /// Format date to consistent YYYY-MM-DD string
+  String _formatDateString(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
   }
 
-  /// Fetch all events from API
+  /// Fetch events from API
   /// Called on init and when refreshing events
+  /// Supports day/week/month filtering based on viewType
+  /// Uses different endpoints for "Everyone" vs "Myself"
   Future<void> fetchAllEvents() async {
     try {
       isLoadingEvents.value = true;
       eventsError.value = '';
-      print('📅 [CalendarController] Fetching all events...');
+      
+      // Determine range based on view type
+      String? range;
+      if (viewType.value == 'day') {
+        range = 'day';
+      } else if (viewType.value == 'week') {
+        range = 'week';
+      } else if (viewType.value == 'month') {
+        range = 'month';
+      }
 
-      final result = await _authService.getAllEvents();
+      // Format current date as YYYY-MM-DD
+      final currentDateStr = _formatDateString(currentDate.value);
+
+      print('═══════════════════════════════════════════════════════════');
+      print('📅 [CalendarController] Fetching events...');
+      print('   Scope: ${scopeType.value}');
+      print('   View Type: ${viewType.value}');
+      print('   Range: ${range ?? 'none'}');
+      print('   Current Date: $currentDateStr');
+      print('   User ID: ${userId.value}');
+      print('═══════════════════════════════════════════════════════════');
+
+      // Use different API endpoint based on scope
+      Map<String, dynamic> result;
+      if (scopeType.value == 'myself') {
+        // Use /api/my/events for "Myself" scope
+        result = await _authService.getMyEvents(
+          range: range ?? 'week',
+          currentDate: currentDateStr,
+        );
+      } else {
+        // Use /api/all/events for "Everyone" scope
+        result = await _authService.getAllEvents(
+          range: range,
+          currentDate: currentDateStr,
+        );
+      }
 
       isLoadingEvents.value = false;
 
@@ -160,10 +148,17 @@ class CalendarController extends GetxController {
         // Store all meetings (for "Everyone" view)
         allMeetings.value = uniqueMeetings.values.toList();
         
+        // Debug: Print all event dates
+        print('📅 [CalendarController] All events dates:');
+        for (var meeting in allMeetings) {
+          print('   - ${meeting.title}: ${meeting.date} ${meeting.startTime} (userId: ${meeting.userId})');
+        }
+        
         // Apply scope filter to update displayed meetings
         _applyScopeFilter();
         
         print('✅ [CalendarController] Fetched ${allMeetings.length} events (${meetings.length} after filtering)');
+        print('   Scope: ${scopeType.value}, View: ${viewType.value}, Date: ${_formatDateString(currentDate.value)}');
       } else {
         eventsError.value = result['message'] ?? 'Failed to fetch events';
         print('❌ [CalendarController] Failed to fetch events: ${result['message']}');
@@ -191,15 +186,29 @@ class CalendarController extends GetxController {
       final startTimeStr = eventData['start_time']?.toString() ?? '';
       final endTimeStr = eventData['end_time']?.toString() ?? '';
 
+      print('🗓️ [CalendarController] Mapping event:');
+      print('   Raw date: $dateStr');
+      print('   Raw start_time: $startTimeStr');
+      print('   Raw end_time: $endTimeStr');
+
       // Parse date
       String formattedDate = '';
       if (dateStr.isNotEmpty) {
         try {
-          final date = DateTime.parse(dateStr.split('T')[0]);
-          formattedDate = date.toIso8601String().split('T')[0];
+          // Handle ISO format: "2025-12-20T00:00:00.000000Z" or "2025-12-20"
+          String datePart = dateStr;
+          if (dateStr.contains('T')) {
+            datePart = dateStr.split('T')[0];
+          }
+          final date = DateTime.parse(datePart);
+          formattedDate = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+          print('   ✅ Parsed date: $formattedDate');
         } catch (e) {
+          print('   ⚠️ Date parse error: $e, using raw: $dateStr');
           formattedDate = dateStr;
         }
+      } else {
+        print('   ⚠️ Empty date string');
       }
 
       // Parse start time
@@ -240,6 +249,9 @@ class CalendarController extends GetxController {
       String creatorEmail = currentUserEmail;
       int? eventUserId;
       
+      print('   👤 Extracting user info from event data...');
+      print('   Current user: userId=$currentUserId, email=$currentUserEmail');
+      
       // Extract user ID from event data
       if (eventData['user'] != null && eventData['user'] is Map) {
         final userData = eventData['user'] as Map<String, dynamic>;
@@ -247,13 +259,17 @@ class CalendarController extends GetxController {
             ? userData['id'] as int 
             : int.tryParse(userData['id']?.toString() ?? '');
         
+        print('   Found user.id: $eventUserId');
+        
         // Try to get email from user data, or construct from name
         if (userData['email'] != null) {
           creatorEmail = userData['email'].toString();
+          print('   Found user.email: $creatorEmail');
         } else if (userData['first_name'] != null) {
           // Construct email-like identifier from name
           final firstName = userData['first_name'].toString().toLowerCase().replaceAll(' ', '');
           creatorEmail = '$firstName@user.com';
+          print('   Constructed email from first_name: $creatorEmail');
         }
       } else if (eventData['created_by'] != null) {
         if (eventData['created_by'] is Map) {
@@ -261,16 +277,23 @@ class CalendarController extends GetxController {
           eventUserId = createdByData['id'] is int 
               ? createdByData['id'] as int 
               : int.tryParse(createdByData['id']?.toString() ?? '');
+          print('   Found created_by.id: $eventUserId');
         } else {
           eventUserId = eventData['created_by'] is int 
               ? eventData['created_by'] as int 
               : int.tryParse(eventData['created_by']?.toString() ?? '');
+          print('   Found created_by (direct): $eventUserId');
         }
       } else if (eventData['user_id'] != null) {
         eventUserId = eventData['user_id'] is int 
             ? eventData['user_id'] as int 
             : int.tryParse(eventData['user_id']?.toString() ?? '');
+        print('   Found user_id: $eventUserId');
+      } else {
+        print('   ⚠️ No user ID found in event data');
       }
+      
+      print('   Final eventUserId: $eventUserId, creatorEmail: $creatorEmail');
 
       // Extract event type name
       String? eventTypeName;
@@ -284,7 +307,7 @@ class CalendarController extends GetxController {
                     eventData['type']?.toString() ?? 
                     'confirmed';
 
-      return Meeting(
+      final meeting = Meeting(
         id: eventData['id']?.toString() ?? '',
         title: eventData['title']?.toString() ?? 'Untitled Event',
         date: formattedDate,
@@ -303,50 +326,76 @@ class CalendarController extends GetxController {
         description: eventData['description']?.toString(),
         userId: eventUserId, // Store user ID for filtering
       );
-    } catch (e) {
+
+      print('   ✅ Mapped meeting: ${meeting.title} on ${meeting.date} at ${meeting.startTime}');
+      print('      userId: ${meeting.userId}, creator: ${meeting.creator}, attendees: ${meeting.attendees}');
+      return meeting;
+    } catch (e, stackTrace) {
       print('⚠️ [CalendarController] Error mapping event: $e');
+      print('   Stack trace: $stackTrace');
       return null;
     }
   }
 
   /// Refresh events from API
   /// Called after creating/updating events to reload calendar data
-  void refreshEvents() {
+  Future<void> refreshEvents() async {
     print('🔄 [CalendarController] Refreshing events...');
-    fetchAllEvents();
+    // Reload user data in case it changed
+    _loadUserData();
+    // Fetch fresh events from API
+    await fetchAllEvents();
   }
 
   /// Change view type (day/week/month)
   void setViewType(String type) {
+    print('🔄 [CalendarController] View type changed: ${viewType.value} → $type');
     viewType.value = type;
     selectedWeekDate.value = null; // Reset date filter when changing views
+    // Refresh events with new view type
+    fetchAllEvents();
   }
 
   /// Change scope type (everyone/myself)
   void setScopeType(String type) {
+    print('🔄 [CalendarController] Scope changed: ${scopeType.value} → $type');
     scopeType.value = type;
-    _applyScopeFilter(); // Re-filter meetings when scope changes
+    // Fetch events based on scope (different API endpoints)
+    fetchAllEvents(); // This will use the correct endpoint based on scope
   }
 
   /// Apply scope filter to meetings
   /// Everyone: Show all events
   /// Myself: Show only events where user is creator or attendee
   void _applyScopeFilter() {
+    print('🔍 [CalendarController] Applying scope filter...');
+    print('   Scope: ${scopeType.value}');
+    print('   Total events: ${allMeetings.length}');
+    print('   Current userId: ${userId.value}');
+    print('   Current userEmail: ${userEmail.value}');
+    
     if (scopeType.value == 'myself') {
       // Filter to show only user's events
       meetings.value = allMeetings.where((meeting) {
-        return isUserInvited(meeting);
+        final isInvited = isUserInvited(meeting);
+        if (isInvited) {
+          print('   ✅ Including: ${meeting.title} (userId: ${meeting.userId}, creator: ${meeting.creator})');
+        } else {
+          print('   ❌ Excluding: ${meeting.title} (userId: ${meeting.userId}, creator: ${meeting.creator})');
+        }
+        return isInvited;
       }).toList();
-      print('🔍 [CalendarController] Filtered to ${meetings.length} events for "Myself" view');
+      print('   👤 Filtered to ${meetings.length} events for "Myself"');
     } else {
       // Show all events for "Everyone" view
       meetings.value = List.from(allMeetings);
-      print('👥 [CalendarController] Showing all ${meetings.length} events for "Everyone" view');
+      print('   👥 Showing all ${meetings.length} events for "Everyone"');
     }
   }
 
   /// Navigate to previous period
   void navigatePrevious() {
+    final oldDate = _formatDateString(currentDate.value);
     final newDate = DateTime(
       currentDate.value.year,
       currentDate.value.month,
@@ -365,10 +414,16 @@ class CalendarController extends GetxController {
         currentDate.value.day,
       );
     }
+    
+    final newDateStr = _formatDateString(currentDate.value);
+    print('🔄 [CalendarController] Navigated PREVIOUS: $oldDate → $newDateStr');
+    // Refresh events when date changes
+    fetchAllEvents();
   }
 
   /// Navigate to next period
   void navigateNext() {
+    final oldDate = _formatDateString(currentDate.value);
     final newDate = DateTime(
       currentDate.value.year,
       currentDate.value.month,
@@ -387,21 +442,35 @@ class CalendarController extends GetxController {
         currentDate.value.day,
       );
     }
+    
+    final newDateStr = _formatDateString(currentDate.value);
+    print('🔄 [CalendarController] Navigated NEXT: $oldDate → $newDateStr');
+    // Refresh events when date changes
+    fetchAllEvents();
   }
 
   /// Navigate to today
   void navigateToToday() {
+    final oldDate = _formatDateString(currentDate.value);
     final now = DateTime.now();
     // Always set to today's date, resetting time to start of day
     currentDate.value = DateTime(now.year, now.month, now.day);
     selectedWeekDate.value = null;
-    print('📅 [CalendarController] Navigated to today: ${currentDate.value}');
+    final newDateStr = _formatDateString(currentDate.value);
+    print('🔄 [CalendarController] Navigated to TODAY: $oldDate → $newDateStr');
+    // Refresh events when date changes
+    fetchAllEvents();
   }
 
   /// Set current date from calendar picker
   void setCurrentDate(DateTime date) {
+    final oldDate = _formatDateString(currentDate.value);
     currentDate.value = date;
     isCalendarOpen.value = false;
+    final newDateStr = _formatDateString(currentDate.value);
+    print('🔄 [CalendarController] Date changed via picker: $oldDate → $newDateStr');
+    // Refresh events when date changes
+    fetchAllEvents();
   }
 
   /// Toggle calendar picker
@@ -412,8 +481,7 @@ class CalendarController extends GetxController {
   /// Handle week date click (for filtering)
   void handleWeekDateClick(DateTime date) {
     if (selectedWeekDate.value != null &&
-        selectedWeekDate.value!.toIso8601String().split('T')[0] ==
-            date.toIso8601String().split('T')[0]) {
+        _formatDateString(selectedWeekDate.value!) == _formatDateString(date)) {
       // Deselect if clicking the same date
       selectedWeekDate.value = null;
     } else {
@@ -423,13 +491,25 @@ class CalendarController extends GetxController {
   }
 
   /// Get current week dates (Monday to Sunday)
+  /// For week view, this calculates the week containing the current date
   List<DateTime> getCurrentWeekDates() {
     final currentDay = currentDate.value.weekday;
+    // Calculate Monday of the week (weekday 1 = Monday)
     final monday = currentDate.value.subtract(Duration(days: currentDay - 1));
 
-    return List.generate(7, (index) {
+    // Generate 7 days from Monday to Sunday
+    final weekDates = List.generate(7, (index) {
       return monday.add(Duration(days: index));
     });
+    
+    // Debug: Log week calculation
+    if (viewType.value == 'week') {
+      print('📅 [CalendarController] Week calculation:');
+      print('   Current date: ${_formatDateString(currentDate.value)}');
+      print('   Week range: ${_formatDateString(weekDates.first)} to ${_formatDateString(weekDates.last)}');
+    }
+    
+    return weekDates;
   }
 
   /// Get month dates (with previous/next month padding)
@@ -495,7 +575,9 @@ class CalendarController extends GetxController {
 
     // Apply week date filter (only in week view)
     if (viewType.value == 'week' && selectedWeekDate.value != null) {
-      final dateStr = selectedWeekDate.value!.toIso8601String().split('T')[0];
+      final selectedDate = selectedWeekDate.value!;
+      // Use consistent date format (YYYY-MM-DD)
+      final dateStr = '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}';
       filtered = filtered.where((m) => m.date == dateStr).toList();
     }
 
@@ -506,13 +588,16 @@ class CalendarController extends GetxController {
   Map<String, List<Meeting>> getMeetingsByDate() {
     final result = <String, List<Meeting>>{};
 
+    print('📊 [CalendarController] Grouping ${meetings.length} meetings by date:');
     for (var meeting in meetings) {
       if (!result.containsKey(meeting.date)) {
         result[meeting.date] = [];
       }
       result[meeting.date]!.add(meeting);
+      print('   - ${meeting.title}: date=${meeting.date}');
     }
 
+    print('📊 [CalendarController] Meetings by date keys: ${result.keys.toList()}');
     return result;
   }
 
@@ -578,58 +663,73 @@ class CalendarController extends GetxController {
     }
 
     // Determine color based on event type
-    final eventType = meeting.primaryEventType ?? 'Meeting';
+    // Normalize event type name (case-insensitive, handle variations)
+    final eventType = (meeting.primaryEventType ?? 'Meeting').trim();
+    final normalizedType = eventType.toLowerCase();
 
-    switch (eventType) {
-      case 'Team Meeting':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFF2563EB)
-            : (isDark
-                  ? const Color(0xFF0C4A6E).withValues(alpha: 0.4)
-                  : const Color(0xFFBAE6FD));
-      case 'One-on-one':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFF4F46E5)
-            : (isDark
-                  ? const Color(0xFF3730A3).withValues(alpha: 0.4)
-                  : const Color(0xFFC7D2FE));
-      case 'Client meeting':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFF9333EA)
-            : (isDark
-                  ? const Color(0xFF6B21A8).withValues(alpha: 0.4)
-                  : const Color(0xFFE9D5FF));
-      case 'Training':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFF16A34A)
-            : (isDark
-                  ? const Color(0xFF166534).withValues(alpha: 0.4)
-                  : const Color(0xFFBBF7D0));
-      case 'Personal Appointment':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFFD97706)
-            : (isDark
-                  ? const Color(0xFF92400E).withValues(alpha: 0.4)
-                  : const Color(0xFFFDE68A));
-      case 'Annual Leave':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFFDC2626)
-            : (isDark
-                  ? const Color(0xFF991B1B).withValues(alpha: 0.4)
-                  : const Color(0xFFFECACA));
-      case 'Personal Leave':
-        return meeting.type == 'confirmed'
-            ? const Color(0xFFEA580C)
-            : (isDark
-                  ? const Color(0xFF9A3412).withValues(alpha: 0.4)
-                  : const Color(0xFFFED7AA));
-      default:
-        return meeting.type == 'confirmed'
-            ? const Color(0xFF2563EB)
-            : (isDark
-                  ? const Color(0xFF0C4A6E).withValues(alpha: 0.4)
-                  : const Color(0xFFBAE6FD));
+    // Map event types to colors
+    // Handle both form event types and API event type names
+    Color getColorForType(String type) {
+      switch (type) {
+        case 'team meeting':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFF2563EB) // Blue
+              : (isDark
+                    ? const Color(0xFF0C4A6E).withValues(alpha: 0.4)
+                    : const Color(0xFFBAE6FD));
+        case 'one-on-one':
+        case 'one on one':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFF4F46E5) // Indigo
+              : (isDark
+                    ? const Color(0xFF3730A3).withValues(alpha: 0.4)
+                    : const Color(0xFFC7D2FE));
+        case 'client meeting':
+        case 'client':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFF9333EA) // Purple
+              : (isDark
+                    ? const Color(0xFF6B21A8).withValues(alpha: 0.4)
+                    : const Color(0xFFE9D5FF));
+        case 'training':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFF16A34A) // Green
+              : (isDark
+                    ? const Color(0xFF166534).withValues(alpha: 0.4)
+                    : const Color(0xFFBBF7D0));
+        case 'personal appointment':
+        case 'appointment':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFFD97706) // Amber
+              : (isDark
+                    ? const Color(0xFF92400E).withValues(alpha: 0.4)
+                    : const Color(0xFFFDE68A));
+        case 'annual leave':
+        case 'leave':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFFDC2626) // Red
+              : (isDark
+                    ? const Color(0xFF991B1B).withValues(alpha: 0.4)
+                    : const Color(0xFFFECACA));
+        case 'personal leave':
+          return meeting.type == 'confirmed'
+              ? const Color(0xFFEA580C) // Orange
+              : (isDark
+                    ? const Color(0xFF9A3412).withValues(alpha: 0.4)
+                    : const Color(0xFFFED7AA));
+        case 'conference':
+        case 'meeting':
+        default:
+          // Default blue color for Conference, Meeting, or unknown types
+          return meeting.type == 'confirmed'
+              ? const Color(0xFF2563EB) // Blue
+              : (isDark
+                    ? const Color(0xFF0C4A6E).withValues(alpha: 0.4)
+                    : const Color(0xFFBAE6FD));
+      }
     }
+
+    return getColorForType(normalizedType);
   }
 
   /// Get text color for event

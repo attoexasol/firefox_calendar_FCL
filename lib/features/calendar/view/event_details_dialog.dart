@@ -32,9 +32,10 @@ class EventDetailsDialog extends GetView<CalendarController> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              
               // Header
               Container(
-                padding: const EdgeInsets.all(20),
+                padding: const EdgeInsets.fromLTRB(20, 20, 12, 20),
                 decoration: BoxDecoration(
                   border: Border(
                     bottom: BorderSide(
@@ -46,23 +47,26 @@ class EventDetailsDialog extends GetView<CalendarController> {
                   ),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
+                    // LEFT: Title + Subtitle
                     Expanded(
                       child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             eventDetails?['title'] ?? meeting.title,
                             style: AppTextStyles.h4.copyWith(
+                              fontWeight: FontWeight.w600,
                               color: isDark
                                   ? AppColors.foregroundDark
                                   : AppColors.foregroundLight,
-                              fontWeight: FontWeight.w600,
                             ),
                           ),
-                          const SizedBox(height: 4),
+                          const SizedBox(height: 6),
                           Text(
-                            'Event details and information',
+                            'Meeting details and information',
                             style: AppTextStyles.bodySmall.copyWith(
                               color: isDark
                                   ? AppColors.mutedForegroundDark
@@ -72,8 +76,12 @@ class EventDetailsDialog extends GetView<CalendarController> {
                         ],
                       ),
                     ),
+
+                    // RIGHT: Close button
                     IconButton(
-                      onPressed: () => controller.closeMeetingDetail(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: controller.closeMeetingDetail,
                       icon: const Icon(Icons.close),
                       color: isDark
                           ? AppColors.foregroundDark
@@ -392,15 +400,15 @@ class EventDetailsDialog extends GetView<CalendarController> {
           const SizedBox(height: 16),
         ],
 
-        // Created By (if available)
-        if (createdBy != null) ...[
-          _buildDetailRow(
-            icon: Icons.person,
-            label: 'Created By',
-            value: 'User ID: $createdBy',
-            isDark: isDark,
-          ),
-        ],
+        // // Created By (if available)
+        // if (createdBy != null) ...[
+        //   _buildDetailRow(
+        //     icon: Icons.person,
+        //     label: 'Created By',
+        //     value: 'User ID: $createdBy',
+        //     isDark: isDark,
+        //   ),
+        // ],
       ],
     );
   }

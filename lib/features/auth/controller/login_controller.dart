@@ -24,6 +24,9 @@ class LoginController extends GetxController {
   final emailController = TextEditingController(text: "aman22@gmail.com");
   final passwordController = TextEditingController(text: "Aman22@@");
 
+    // final emailController = TextEditingController(text: " ");
+    // final passwordController = TextEditingController(text: " ");
+
   // =========================================================
   // REACTIVE PROPERTIES
   // =========================================================

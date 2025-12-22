@@ -366,19 +366,126 @@ class CalendarScreen extends GetView<CalendarController> {
         final weekDates = controller.getCurrentWeekDates();
         final meetingsByDate = controller.getMeetingsByDate();
         
-        // Get all meetings for the week
+        // Create a set of week date strings for fast lookup
+        final weekDateStrings = weekDates.map((date) {
+          return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        }).toSet();
+        
+        // For week view, use ALL meetings from controller (already filtered by scope)
+        // The API returns events for the week range, so we trust those dates
+        // We'll filter to only show events that fall within the displayed week dates
+        final weekStart = weekDates.first;
+        final weekEnd = weekDates.last;
+        
+        // Debug: Print week dates and available meetings
+        print('═══════════════════════════════════════════════════════════');
+        print('📅 [CalendarScreen] Week view analysis:');
+        print('   Week dates: ${weekDateStrings.join(", ")}');
+        print('   Available meeting dates: ${meetingsByDate.keys.join(", ")}');
+        print('   Total meetings in controller: ${controller.meetings.length}');
+        
+        // Get all meetings that match the week date strings OR fall within the week range
+        // This handles both exact date matches and edge cases where API returns slightly different ranges
         final weekMeetings = <Meeting>[];
-        for (var date in weekDates) {
-          final dateStr = date.toIso8601String().split('T')[0];
-          final dayMeetings = meetingsByDate[dateStr] ?? [];
-          weekMeetings.addAll(dayMeetings);
+        
+        for (var meeting in controller.meetings) {
+          // First check: exact date string match (fast path)
+          if (weekDateStrings.contains(meeting.date)) {
+            weekMeetings.add(meeting);
+            continue;
+          }
+          
+          // Second check: parse date and check if within week range
+          try {
+            final meetingDateParts = meeting.date.split('-');
+            if (meetingDateParts.length == 3) {
+              final meetingDate = DateTime(
+                int.parse(meetingDateParts[0]),
+                int.parse(meetingDateParts[1]),
+                int.parse(meetingDateParts[2]),
+              );
+              
+              // Check if meeting date is within week range (inclusive)
+              // Compare dates only (ignore time)
+              final meetingDateOnly = DateTime(meetingDate.year, meetingDate.month, meetingDate.day);
+              final weekStartOnly = DateTime(weekStart.year, weekStart.month, weekStart.day);
+              final weekEndOnly = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
+              
+              // Meeting is included if its date is >= weekStart and <= weekEnd
+              final isInRange = !meetingDateOnly.isBefore(weekStartOnly) && !meetingDateOnly.isAfter(weekEndOnly);
+              
+              if (isInRange) {
+                weekMeetings.add(meeting);
+                // Also add this date to weekDateStrings if it's not already there
+                // This ensures the date column is shown even if it's outside calculated week
+                if (!weekDateStrings.contains(meeting.date)) {
+                  print('   ⚠️ Event date ${meeting.date} is outside calculated week but within API range');
+                }
+              }
+            }
+          } catch (e) {
+            // If parsing fails, skip this meeting
+            print('   ❌ Parse error for ${meeting.title} on ${meeting.date}: $e');
+          }
         }
+        
+        print('   Total meetings in week: ${weekMeetings.length}');
+        for (var meeting in weekMeetings) {
+          print('      - ${meeting.title} on ${meeting.date}');
+        }
+        print('═══════════════════════════════════════════════════════════');
+        
+        // Group meetings by date for display
+        final weekMeetingsByDate = <String, List<Meeting>>{};
+        for (var meeting in weekMeetings) {
+          if (!weekMeetingsByDate.containsKey(meeting.date)) {
+            weekMeetingsByDate[meeting.date] = [];
+          }
+          weekMeetingsByDate[meeting.date]!.add(meeting);
+        }
+        
+        // Merge with existing meetingsByDate to include all week meetings
+        final updatedMeetingsByDate = Map<String, List<Meeting>>.from(meetingsByDate);
+        weekMeetingsByDate.forEach((date, meetings) {
+          updatedMeetingsByDate[date] = meetings;
+        });
         
         final filteredMeetings = controller.filterMeetings(weekMeetings);
         final timeRange = controller.getTimeRange(filteredMeetings);
         
-        // Get unique users from all week meetings
-        final users = _getUsersFromMeetings(filteredMeetings);
+        // Get users per date (each day can have different users)
+        // This matches the image where each day shows only users with events on that day
+        final Map<String, List<String>> usersByDate = {};
+        for (var date in weekDates) {
+          final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+          // Use updatedMeetingsByDate which includes the week-filtered events
+          final dayMeetings = updatedMeetingsByDate[dateStr] ?? [];
+          final filteredDayMeetings = controller.filterMeetings(dayMeetings);
+          
+          // Debug: Log users for this date
+          if (dayMeetings.isNotEmpty) {
+            print('   👥 [Week View] Date $dateStr: ${dayMeetings.length} meetings, filtering to ${filteredDayMeetings.length}');
+          }
+          
+          // Get unique users for this specific date
+          if (controller.scopeType.value == 'myself') {
+            // In "Myself" view, only show current user
+            final currentUserEmail = controller.userEmail.value;
+            if (currentUserEmail.isNotEmpty && filteredDayMeetings.isNotEmpty) {
+              usersByDate[dateStr] = [currentUserEmail];
+              print('   ✅ [Week View] Date $dateStr: Added user $currentUserEmail (myself)');
+            } else {
+              usersByDate[dateStr] = [];
+            }
+          } else {
+            // In "Everyone" view, show all users who have events on this date
+            final users = _getUsersFromMeetings(filteredDayMeetings);
+            usersByDate[dateStr] = users;
+            if (users.isNotEmpty) {
+              print('   ✅ [Week View] Date $dateStr: Added ${users.length} users: ${users.join(", ")}');
+            }
+          }
+        }
         
         return Column(
           children: [
@@ -420,7 +527,8 @@ class CalendarScreen extends GetView<CalendarController> {
               child: Row(
                 children: weekDates.map((date) {
                   final today = DateTime.now();
-                  final dateStr = date.toIso8601String().split('T')[0];
+                  // Use consistent date format (YYYY-MM-DD)
+                  final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
                   final isToday =
                       date.year == today.year &&
                       date.month == today.month &&
@@ -498,29 +606,14 @@ class CalendarScreen extends GetView<CalendarController> {
             const SizedBox(height: 8),
 
             // Week Schedule with User Columns
-            if (users.isEmpty)
-              Container(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: Text(
-                    'No events scheduled for this week',
-                    style: AppTextStyles.bodyMedium.copyWith(
-                      color: isDark
-                          ? AppColors.mutedForegroundDark
-                          : AppColors.mutedForegroundLight,
-                    ),
-                  ),
-                ),
-              )
-            else
-              _buildWeekUserTimelineGrid(
-                context,
-                users,
-                weekDates,
-                meetingsByDate,
-                timeRange,
-                isDark,
-              ),
+            _buildWeekUserTimelineGrid(
+              context,
+              usersByDate,
+              weekDates,
+              updatedMeetingsByDate, // Use updated meetings that include week-filtered events
+              timeRange,
+              isDark,
+            ),
           ],
         );
       }),
@@ -528,9 +621,10 @@ class CalendarScreen extends GetView<CalendarController> {
   }
 
   /// Build week user timeline grid (similar to day view but for multiple days)
+  /// Each day shows only users who have events on that specific day
   Widget _buildWeekUserTimelineGrid(
     BuildContext context,
-    List<String> users,
+    Map<String, List<String>> usersByDate,
     List<DateTime> weekDates,
     Map<String, List<Meeting>> meetingsByDate,
     TimeRange timeRange,
@@ -538,10 +632,20 @@ class CalendarScreen extends GetView<CalendarController> {
   ) {
     final numSlots = timeRange.endHour - timeRange.startHour + 1;
     
+    // Calculate total width: sum of users per day + time column
+    final totalWidth = 80.0 + weekDates.fold<double>(
+      0.0,
+      (sum, date) {
+        final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        final dayUsers = usersByDate[dateStr] ?? [];
+        return sum + (dayUsers.length * 150.0);
+      },
+    );
+    
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: SizedBox(
-        width: (weekDates.length * users.length * 150.0) + 80, // 150px per user column per day + 80px for time labels
+        width: totalWidth,
         child: Column(
           children: [
             // Header Row with Time and User columns for each day
@@ -584,10 +688,11 @@ class CalendarScreen extends GetView<CalendarController> {
                       ),
                     ),
                   ),
-                  // User Columns for each day
+                  // User Columns for each day (only show users with events on that day)
                   ...weekDates.expand((date) {
-                    final dateStr = date.toIso8601String().split('T')[0];
-                    return users.map((user) {
+                    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                    final dayUsers = usersByDate[dateStr] ?? [];
+                    return dayUsers.map((user) {
                       return Container(
                         width: 150,
                         height: 80,
@@ -691,37 +796,81 @@ class CalendarScreen extends GetView<CalendarController> {
                         ),
                       ),
                     ),
-                    // User Columns for each day
+                    // User Columns for each day (only show users with events on that day)
                     ...weekDates.expand((date) {
-                      final dateStr = date.toIso8601String().split('T')[0];
+                      // Use consistent date format (YYYY-MM-DD)
+                      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                      // meetingsByDate parameter contains updatedMeetingsByDate passed from parent
                       final dayMeetings = meetingsByDate[dateStr] ?? [];
                       final filteredDayMeetings = controller.filterMeetings(dayMeetings);
+                      final dayUsers = usersByDate[dateStr] ?? [];
                       
-                      return users.map((user) {
+                      // Debug: Log meetings for this date
+                      if (dayMeetings.isNotEmpty || dayUsers.isNotEmpty) {
+                        print('   📅 [Week Grid] Date $dateStr: ${dayMeetings.length} meetings, ${filteredDayMeetings.length} filtered, ${dayUsers.length} users');
+                        for (var meeting in dayMeetings) {
+                          print('      - ${meeting.title}: ${meeting.startTime}-${meeting.endTime} (creator: ${meeting.creator})');
+                        }
+                      }
+                      
+                      // If no users for this date, return empty list (no columns)
+                      if (dayUsers.isEmpty) {
+                        return <Widget>[];
+                      }
+                      
+                      return dayUsers.map((user) {
                         // Find meetings for this user on this date that overlap with this hour slot
                         final userMeetings = filteredDayMeetings.where((meeting) {
-                          // Check if user is creator or attendee
-                          final isUserMeeting = meeting.creator == user ||
-                              meeting.attendees.contains(user);
-                          if (!isUserMeeting) return false;
+                          // In "Myself" view, all filtered meetings are already the user's events
+                          // So we just need to check if the meeting matches this user column
+                          if (controller.scopeType.value == 'myself') {
+                            // In "Myself" view, match by userId first (more reliable)
+                            if (controller.userId.value > 0 && meeting.userId != null) {
+                              if (meeting.userId != controller.userId.value) {
+                                return false;
+                              }
+                            } else {
+                              // Fallback: match by creator/attendee email
+                              final isUserMeeting = meeting.creator == user ||
+                                  meeting.attendees.contains(user);
+                              if (!isUserMeeting) return false;
+                            }
+                          } else {
+                            // In "Everyone" view, match by creator/attendee
+                            final isUserMeeting = meeting.creator == user ||
+                                meeting.attendees.contains(user);
+                            if (!isUserMeeting) return false;
+                          }
 
-                          // Check if meeting overlaps with this hour
-                          final startParts = meeting.startTime.split(':');
-                          final endParts = meeting.endTime.split(':');
-                          final startHour = int.parse(startParts[0]);
-                          final startMin = int.parse(startParts[1]);
-                          final endHour = int.parse(endParts[0]);
-                          final endMin = int.parse(endParts[1]);
-                          
-                          // Meeting overlaps if it starts before or during this hour
-                          // and ends after this hour starts
-                          return (startHour < hour || (startHour == hour && startMin == 0)) &&
-                                 (endHour > hour || (endHour == hour && endMin > 0));
-                        }).toList();
+                        // Check if meeting overlaps with this hour slot
+                        // Convert times to minutes for accurate comparison
+                        final startParts = meeting.startTime.split(':');
+                        final endParts = meeting.endTime.split(':');
+                        final startHour = int.parse(startParts[0]);
+                        final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
+                        final endHour = int.parse(endParts[0]);
+                        final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
+                        
+                        // Convert to minutes for precise comparison
+                        final startMinutes = startHour * 60 + startMin;
+                        final endMinutes = endHour * 60 + endMin;
+                        final hourStartMinutes = hour * 60;
+                        final hourEndMinutes = (hour + 1) * 60;
+                        
+                        // Meeting overlaps hour if: starts before hour ends AND ends after hour starts
+                        final overlaps = startMinutes < hourEndMinutes && endMinutes > hourStartMinutes;
+                        
+                        return overlaps;
+                      }).toList();
+                      
+                      if (userMeetings.isNotEmpty) {
+                        print('   📅 User $user has ${userMeetings.length} meetings in hour $hour');
+                      }
 
                         return Container(
                           width: 150,
                           height: 80,
+                          clipBehavior: Clip.hardEdge,
                           decoration: BoxDecoration(
                             color: isDark
                                 ? AppColors.backgroundDark
@@ -736,60 +885,83 @@ class CalendarScreen extends GetView<CalendarController> {
                             ),
                           ),
                           padding: const EdgeInsets.all(4),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: userMeetings.where((meeting) {
-                              // Only show event in the hour slot where it starts
-                              final startParts = meeting.startTime.split(':');
-                              final startHour = int.parse(startParts[0]);
-                              return startHour == hour;
-                            }).map((meeting) {
-                              // Use meeting creator for color (user-wise color coding)
-                              final userForColor = meeting.creator;
-                              final color = _getEventColorForUser(meeting, userForColor, isDark);
-                              final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
+                          child: Builder(
+                            builder: (context) {
+                              // Filter events for this hour
+                              final hourEvents = userMeetings.where((meeting) {
+                                final startParts = meeting.startTime.split(':');
+                                final startHour = int.parse(startParts[0]);
+                                return startHour == hour;
+                              }).toList();
+                              
+                              // Calculate equal height for all events in this hour
+                              // Hour box: 80px, padding: 4px all sides = 8px total, so available: 72px
+                              // Account for margins between events: (count - 1) * margin
+                              // Add larger buffer (2px) to prevent overflow from text rendering
+                              final eventCount = hourEvents.length;
+                              final marginBetween = 2.0;
+                              final availableHeight = 70.0; // 80 - 8 (padding) - 2 (buffer)
+                              final totalMargins = eventCount > 1 ? (eventCount - 1) * marginBetween : 0.0;
+                              final equalHeight = eventCount > 0 
+                                  ? (availableHeight - totalMargins) / eventCount 
+                                  : 0.0;
+                              
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: hourEvents.map((meeting) {
+                                  // Use meeting creator for color (user-wise color coding)
+                                  final userForColor = meeting.creator;
+                                  final color = _getEventColorForUser(meeting, userForColor, isDark);
+                                  final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
 
-                              // Fixed size for all events (width and height)
-                              return InkWell(
-                                onTap: () => controller.openMeetingDetail(meeting),
-                                child: Container(
-                                  width: double.infinity, // Full width of parent
-                                  height: 60, // Fixed height
-                                  margin: const EdgeInsets.only(bottom: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          meeting.title,
-                                          style: AppTextStyles.labelSmall.copyWith(
-                                            color: textColor,
-                                            fontWeight: FontWeight.w600,
-                                            fontSize: 12,
-                                          ),
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
+                                  // Equal size for all events in the same hour
+                                  return InkWell(
+                                    onTap: () => controller.openMeetingDetail(meeting),
+                                    child: Container(
+                                      width: double.infinity, // Full width of parent (150px)
+                                      height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
+                                      margin: EdgeInsets.only(bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: color,
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: SizedBox(
+                                        height: double.infinity,
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Flexible(
+                                              child: Text(
+                                                meeting.title,
+                                                style: AppTextStyles.labelSmall.copyWith(
+                                                  color: textColor,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 11,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              meeting.startTime,
+                                              style: AppTextStyles.labelSmall.copyWith(
+                                                fontSize: 9,
+                                                color: textColor.withValues(alpha: 0.9),
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        meeting.startTime,
-                                        style: AppTextStyles.labelSmall.copyWith(
-                                          fontSize: 10,
-                                          color: textColor.withValues(alpha: 0.9),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+                                    ),
+                                  );
+                                }).toList(),
                               );
-                            }).toList(),
+                            },
                           ),
                         );
                       });
@@ -831,44 +1003,16 @@ class CalendarScreen extends GetView<CalendarController> {
     return colors[hash.abs() % colors.length];
   }
 
-  /// Get event color based on user (different color per user)
+  /// Get event color based on event type (different color per event type)
   Color _getEventColorForUser(Meeting meeting, String user, bool isDark) {
-    // Check if meeting is in the past
-    final meetingDateTime = DateTime.parse(
-      '${meeting.date}T${meeting.endTime}',
-    );
-    final now = DateTime.now();
-    final isPast = meetingDateTime.isBefore(now);
-
-    if (isPast) {
-      return isDark
-          ? const Color(0xFF166534).withValues(alpha: 0.4)
-          : const Color(0xFFBBF7D0);
-    }
-
-    // Get user color and apply it to the event (more vibrant for better visibility)
-    final userColor = _getUserColor(user);
-    return meeting.type == 'confirmed'
-        ? userColor.withValues(alpha: 0.9) // More vibrant for confirmed events
-        : userColor.withValues(alpha: 0.5); // Slightly more visible for tentative
+    // Use the controller's event type-based color logic
+    return controller.getEventColor(meeting, isDark);
   }
 
-  /// Get text color for event based on user
+  /// Get text color for event based on event type
   Color _getEventTextColorForUser(Meeting meeting, String user, bool isDark) {
-    final meetingDateTime = DateTime.parse(
-      '${meeting.date}T${meeting.endTime}',
-    );
-    final now = DateTime.now();
-    final isPast = meetingDateTime.isBefore(now);
-
-    if (isPast) {
-      return isDark ? const Color(0xFFBBF7D0) : const Color(0xFF166534);
-    }
-
-    // Use white text for better contrast on colored backgrounds
-    return meeting.type == 'confirmed'
-        ? Colors.white
-        : (isDark ? Colors.white.withValues(alpha: 0.8) : Colors.black87);
+    // Use the controller's event type-based text color logic
+    return controller.getEventTextColor(meeting, isDark);
   }
 
   /// Build day view
@@ -876,9 +1020,16 @@ class CalendarScreen extends GetView<CalendarController> {
     return SingleChildScrollView(
       child: Obx(() {
         final currentDate = controller.currentDate.value;
-        final dateStr = currentDate.toIso8601String().split('T')[0];
+        // Use consistent date format (YYYY-MM-DD)
+        final dateStr = '${currentDate.year}-${currentDate.month.toString().padLeft(2, '0')}-${currentDate.day.toString().padLeft(2, '0')}';
         final meetingsByDate = controller.getMeetingsByDate();
         final dayMeetings = meetingsByDate[dateStr] ?? [];
+        
+        print('📅 [CalendarScreen] Day view: date=$dateStr, meetings=${dayMeetings.length}');
+        for (var meeting in dayMeetings) {
+          print('   - ${meeting.title}: ${meeting.date} ${meeting.startTime}');
+        }
+        
         final filteredMeetings = controller.filterMeetings(dayMeetings);
         final timeRange = controller.getTimeRange(filteredMeetings);
 
@@ -937,7 +1088,8 @@ class CalendarScreen extends GetView<CalendarController> {
             final dateIndex = index - 7;
             final monthDate = monthDates[dateIndex];
             final date = monthDate.date;
-            final dateStr = date.toIso8601String().split('T')[0];
+            // Use consistent date format (YYYY-MM-DD)
+            final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
             final dayMeetings = controller.filterMeetings(
               meetingsByDate[dateStr] ?? [],
             );
@@ -1086,7 +1238,8 @@ class CalendarScreen extends GetView<CalendarController> {
 
                   // Date Columns
                   ...dates.map((date) {
-                    final dateStr = date.toIso8601String().split('T')[0];
+                    // Use consistent date format (YYYY-MM-DD)
+                  final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
                     final dayMeetings = meetingsByDate[dateStr] ?? [];
 
                     // Find meetings in this time slot
@@ -1102,6 +1255,7 @@ class CalendarScreen extends GetView<CalendarController> {
                     return Container(
                       width: 150,
                       height: 80,
+                      clipBehavior: Clip.hardEdge,
                       decoration: BoxDecoration(
                         color: isDark
                             ? AppColors.backgroundDark
@@ -1116,54 +1270,74 @@ class CalendarScreen extends GetView<CalendarController> {
                         ),
                       ),
                       padding: const EdgeInsets.all(4),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: slotMeetings.map((meeting) {
-                          // Use meeting creator for color (user-wise)
-                          final userForColor = meeting.creator;
-                          final color = _getEventColorForUser(meeting, userForColor, isDark);
-                          final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
+                      child: Builder(
+                        builder: (context) {
+                          // Calculate equal height for all events in this hour
+                          // Hour box: 80px, padding: 4px all sides = 8px total, so available: 72px
+                          // Add larger buffer (2px) to prevent overflow from text rendering
+                          final eventCount = slotMeetings.length;
+                          final marginBetween = 4.0;
+                          final availableHeight = 70.0; // 80 - 8 (padding) - 2 (buffer)
+                          final totalMargins = eventCount > 1 ? (eventCount - 1) * marginBetween : 0.0;
+                          final equalHeight = eventCount > 0 
+                              ? (availableHeight - totalMargins) / eventCount 
+                              : 0.0;
+                          
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: slotMeetings.map((meeting) {
+                              // Use meeting creator for color (user-wise)
+                              final userForColor = meeting.creator;
+                              final color = _getEventColorForUser(meeting, userForColor, isDark);
+                              final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
 
-                          return InkWell(
-                            onTap: () => controller.openMeetingDetail(meeting),
-                            child: Container(
-                              width: double.infinity, // Full width of parent
-                              height: 60, // Fixed height
-                              margin: const EdgeInsets.only(bottom: 4),
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                              decoration: BoxDecoration(
-                                color: color,
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      meeting.title,
-                                      style: AppTextStyles.labelSmall.copyWith(
-                                        color: textColor,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 12,
-                                      ),
-                                      maxLines: 2,
-                                      overflow: TextOverflow.ellipsis,
+                              return InkWell(
+                                onTap: () => controller.openMeetingDetail(meeting),
+                                child: Container(
+                                  width: double.infinity, // Full width of parent
+                                  height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
+                                  margin: EdgeInsets.only(bottom: slotMeetings.indexOf(meeting) < slotMeetings.length - 1 ? marginBetween : 0),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: color,
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: SizedBox(
+                                    height: double.infinity,
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            meeting.title,
+                                            style: AppTextStyles.labelSmall.copyWith(
+                                              color: textColor,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 12,
+                                            ),
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        Text(
+                                          meeting.startTime,
+                                          style: AppTextStyles.labelSmall.copyWith(
+                                            fontSize: 10,
+                                            color: textColor.withValues(alpha: 0.9),
+                                          ),
+                                        ),
+                                      ],
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    meeting.startTime,
-                                    style: AppTextStyles.labelSmall.copyWith(
-                                      fontSize: 10,
-                                      color: textColor.withValues(alpha: 0.9),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              );
+                            }).toList(),
                           );
-                        }).toList(),
+                        },
                       ),
                     );
                   }),
@@ -1193,15 +1367,20 @@ class CalendarScreen extends GetView<CalendarController> {
   }
 
   /// Format hour for display
+  /// Format hour in 24-hour format with AM/PM indicators (HH:00 AM/PM)
   String _formatHour(int hour) {
-    if (hour > 12) {
-      return '${hour - 12}:00 PM';
+    // Format as 24-hour with AM/PM: 00:00 AM to 23:00 PM
+    final hourStr = hour.toString().padLeft(2, '0');
+    
+    // Determine AM/PM based on hour
+    if (hour == 0) {
+      return '00:00 AM'; // Midnight
+    } else if (hour < 12) {
+      return '$hourStr:00 AM'; // 01:00 AM to 11:00 AM
     } else if (hour == 12) {
-      return '12:00 PM';
-    } else if (hour == 0) {
-      return '12:00 AM';
+      return '12:00 PM'; // Noon
     } else {
-      return '$hour:00 AM';
+      return '$hourStr:00 PM'; // 13:00 PM to 23:00 PM
     }
   }
 
@@ -1312,8 +1491,21 @@ class CalendarScreen extends GetView<CalendarController> {
   ) {
     final numSlots = timeRange.endHour - timeRange.startHour + 1;
     
+    // Debug logging
+    print('═══════════════════════════════════════════════════════════');
+    print('🎨 [CalendarScreen] Building user timeline grid:');
+    print('   Date: $dateStr');
+    print('   Users: ${users.length} (${users.join(", ")})');
+    print('   Meetings: ${meetings.length}');
+    for (var meeting in meetings) {
+      print('      - ${meeting.title}: date=${meeting.date} time=${meeting.startTime}-${meeting.endTime} creator=${meeting.creator}');
+    }
+    print('   Time range: ${timeRange.startHour}:00 - ${timeRange.endHour}:00');
+    print('═══════════════════════════════════════════════════════════');
+    
     // If no users, show empty state
     if (users.isEmpty) {
+      print('   ⚠️ No users found - showing empty state');
       return Container(
         padding: const EdgeInsets.all(24),
         child: Center(
@@ -1327,6 +1519,10 @@ class CalendarScreen extends GetView<CalendarController> {
           ),
         ),
       );
+    }
+    
+    if (meetings.isEmpty && users.isNotEmpty) {
+      print('   ⚠️ No meetings found for ${users.length} users - showing empty grid');
     }
 
     return SingleChildScrollView(
@@ -1486,28 +1682,45 @@ class CalendarScreen extends GetView<CalendarController> {
                         // Check if user is creator or attendee
                         final isUserMeeting = meeting.creator == user ||
                             meeting.attendees.contains(user);
-                        if (!isUserMeeting) return false;
+                        if (!isUserMeeting) {
+                          return false; // Silent exclusion for user mismatch (too verbose)
+                        }
 
-                        // Check if meeting is on this date
-                        if (meeting.date != dateStr) return false;
+                        // Check if meeting is on this date (exact match required)
+                        if (meeting.date != dateStr) {
+                          return false; // Silent exclusion for date mismatch (too verbose)
+                        }
 
-                        // Check if meeting overlaps with this hour
+                        // Check if meeting overlaps with this hour slot
+                        // Convert times to minutes for accurate comparison
                         final startParts = meeting.startTime.split(':');
                         final endParts = meeting.endTime.split(':');
                         final startHour = int.parse(startParts[0]);
-                        final startMin = int.parse(startParts[1]);
+                        final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
                         final endHour = int.parse(endParts[0]);
-                        final endMin = int.parse(endParts[1]);
+                        final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
                         
-                        // Meeting overlaps if it starts before or during this hour
-                        // and ends after this hour starts
-                        return (startHour < hour || (startHour == hour && startMin == 0)) &&
-                               (endHour > hour || (endHour == hour && endMin > 0));
+                        // Convert to minutes for precise comparison
+                        final startMinutes = startHour * 60 + startMin;
+                        final endMinutes = endHour * 60 + endMin;
+                        final hourStartMinutes = hour * 60;
+                        final hourEndMinutes = (hour + 1) * 60;
+                        
+                        // Meeting overlaps hour if: starts before hour ends AND ends after hour starts
+                        // Example: 09:10-10:10 overlaps hour 9 (540-600) because 550 < 600 && 610 > 540
+                        final overlaps = startMinutes < hourEndMinutes && endMinutes > hourStartMinutes;
+                        
+                        return overlaps;
                       }).toList();
+                      
+                      if (userMeetings.isNotEmpty) {
+                        print('   📅 User $user has ${userMeetings.length} meetings in hour $hour');
+                      }
 
                       return Container(
                         width: 150,
                         height: 80,
+                        clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
                           color: isDark
                               ? AppColors.backgroundDark
@@ -1522,60 +1735,88 @@ class CalendarScreen extends GetView<CalendarController> {
                           ),
                         ),
                         padding: const EdgeInsets.all(4),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: userMeetings.where((meeting) {
-                            // Only show event in the hour slot where it starts
-                            final startParts = meeting.startTime.split(':');
-                            final startHour = int.parse(startParts[0]);
-                            return startHour == hour;
-                          }).map((meeting) {
-                            // Use meeting creator for color (user-wise color coding)
-                            final userForColor = meeting.creator;
-                            final color = _getEventColorForUser(meeting, userForColor, isDark);
-                            final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
+                        child: Builder(
+                          builder: (context) {
+                            // Filter events for this hour
+                            final hourEvents = userMeetings.where((meeting) {
+                              // Only show event in the hour slot where it starts
+                              // This prevents duplicate rendering across multiple hours
+                              final startParts = meeting.startTime.split(':');
+                              final startHour = int.parse(startParts[0]);
+                              final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
+                              
+                              // Show event in the hour where it starts
+                              // For example: 09:10 starts in hour 9, 10:00 starts in hour 10
+                              return startHour == hour;
+                            }).toList();
+                            
+                            // Calculate equal height for all events in this hour
+                            // Hour box: 80px, padding: 4px all sides = 8px total, so available: 72px
+                            // Add larger buffer (2px) to prevent overflow from text rendering
+                            final eventCount = hourEvents.length;
+                            final marginBetween = 4.0;
+                            final availableHeight = 70.0; // 80 - 8 (padding) - 2 (buffer)
+                            final totalMargins = eventCount > 1 ? (eventCount - 1) * marginBetween : 0.0;
+                            final equalHeight = eventCount > 0 
+                                ? (availableHeight - totalMargins) / eventCount 
+                                : 0.0;
+                            
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: hourEvents.map((meeting) {
+                                // Use meeting creator for color (user-wise color coding)
+                                final userForColor = meeting.creator;
+                                final color = _getEventColorForUser(meeting, userForColor, isDark);
+                                final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
 
-                            // Fixed size for all events (width and height)
-                            return InkWell(
-                              onTap: () => controller.openMeetingDetail(meeting),
-                              child: Container(
-                                width: double.infinity, // Full width of parent
-                                height: 60, // Fixed height
-                                margin: const EdgeInsets.only(bottom: 4),
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: color,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        meeting.title,
-                                        style: AppTextStyles.labelSmall.copyWith(
-                                          color: textColor,
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 12,
-                                        ),
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
+                                // Equal size for all events in the same hour
+                                return InkWell(
+                                  onTap: () => controller.openMeetingDetail(meeting),
+                                  child: Container(
+                                    width: double.infinity, // Full width of parent
+                                    height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
+                                    margin: EdgeInsets.only(bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: color,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: SizedBox(
+                                      height: double.infinity,
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              meeting.title,
+                                              style: AppTextStyles.labelSmall.copyWith(
+                                                color: textColor,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 12,
+                                              ),
+                                              maxLines: 2,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            meeting.startTime,
+                                            style: AppTextStyles.labelSmall.copyWith(
+                                              fontSize: 10,
+                                              color: textColor.withValues(alpha: 0.9),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      meeting.startTime,
-                                      style: AppTextStyles.labelSmall.copyWith(
-                                        fontSize: 10,
-                                        color: textColor.withValues(alpha: 0.9),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
+                                  ),
+                                );
+                              }).toList(),
                             );
-                          }).toList(),
+                          },
                         ),
                       );
                     }),
