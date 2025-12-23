@@ -77,34 +77,44 @@ class TopBar extends GetView<DashboardController>
 
               const SizedBox(width: 8),
 
-              // Check-in/Check-out Button
+              // Start Time Button
               Obx(
-                () => IconButton(
-                  onPressed: controller.toggleCheckInOut,
-                  icon: Icon(
-                    controller.isCheckedIn.value
-                        ? Icons.logout // Check out icon
-                        : Icons.login, // Check in icon
-                    size: 20,
-                    color: controller.isCheckedIn.value
-                        ? Colors.red.shade600
-                        : Colors.green.shade600,
-                  ),
-                  tooltip: controller.isCheckedIn.value
-                      ? 'Check Out'
-                      : 'Check In',
-                  style: IconButton.styleFrom(
-                    padding: const EdgeInsets.all(8),
-                    minimumSize: const Size(36, 36),
-                  ),
-                ),
+                () => controller.isStartTimeLoading.value
+                    ? Container(
+                        width: 36,
+                        height: 36,
+                        padding: const EdgeInsets.all(8),
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.green.shade600,
+                          ),
+                        ),
+                      )
+                    : IconButton(
+                        onPressed: controller.setStartTime,
+                        icon: Icon(
+                          Icons.play_circle_outline, // Start/Play icon for Start Time
+                          size: 20,
+                          color: controller.startTime.value.isNotEmpty
+                              ? Colors.green.shade600
+                              : Colors.green.shade600,
+                        ),
+                        tooltip: controller.startTime.value.isNotEmpty
+                            ? 'Start Time: ${controller.startTime.value.split(' ')[1]}'
+                            : 'Set Start Time',
+                        style: IconButton.styleFrom(
+                          padding: const EdgeInsets.all(8),
+                          minimumSize: const Size(36, 36),
+                        ),
+                      ),
               ),
 
               const SizedBox(width: 4),
 
-              // Logout Button with Loading State
+              // End Time Button
               Obx(
-                () => controller.isLogoutLoading.value
+                () => controller.isEndTimeLoading.value
                     ? Container(
                         width: 36,
                         height: 36,
@@ -119,15 +129,17 @@ class TopBar extends GetView<DashboardController>
                         ),
                       )
                     : IconButton(
-                        onPressed: controller.handleLogout,
+                        onPressed: controller.setEndTime,
                         icon: Icon(
-                          Icons.logout,
+                          Icons.stop_circle_outlined, // Stop icon for End Time
                           size: 20,
                           color: isDark
                               ? AppColors.foregroundDark
                               : AppColors.foregroundLight,
                         ),
-                        tooltip: 'Logout',
+                        tooltip: controller.endTime.value.isNotEmpty
+                            ? 'End Time: ${controller.endTime.value.split(' ')[1]}'
+                            : 'Set End Time',
                         style: IconButton.styleFrom(
                           padding: const EdgeInsets.all(8),
                           minimumSize: const Size(36, 36),

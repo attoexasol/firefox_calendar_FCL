@@ -19,11 +19,14 @@ class DashboardController extends GetxController {
 
   // Loading states
   final RxBool isLogoutLoading = false.obs;
+  final RxBool isStartTimeLoading = false.obs;
+  final RxBool isEndTimeLoading = false.obs;
 
-  // Check-in state
-  final RxBool isCheckedIn = false.obs;
-  final RxString todayCheckInTime = ''.obs;
-  final RxString todayCheckOutTime = ''.obs;
+  // Start/End time state
+  final RxString startTime = ''.obs; // Format: "2025-12-17 09:00:00"
+  final RxString endTime = ''.obs; // Format: "2025-12-17 18:00:00"
+  final RxString workDate = ''.obs; // Format: "2025-12-17"
+  final RxString activeSessionId = ''.obs; // Store the ID of the active session
 
   // Metrics (observable)
   final RxString hoursToday = '7.5'.obs;
@@ -46,7 +49,7 @@ class DashboardController extends GetxController {
   void onInit() {
     super.onInit();
     _loadUserData();
-    _loadCheckInStatus();
+    _loadStartEndTimeStatus();
     _loadMockMeetings();
     _startCountdownTimer();
   }
@@ -59,61 +62,232 @@ class DashboardController extends GetxController {
     userProfilePicture.value = storage.read('userProfilePicture') ?? '';
   }
 
-  /// Load check-in status
-  void _loadCheckInStatus() {
-    final today = DateTime.now().toIso8601String().split('T')[0];
-    final checkInData = storage.read('checkIn_$userEmail.value_$today');
+  /// Load start/end time status
+  void _loadStartEndTimeStatus() {
+    final today = DateTime.now();
+    final todayStr = today.toIso8601String().split('T')[0];
+    workDate.value = todayStr;
     
-    if (checkInData != null) {
-      todayCheckInTime.value = checkInData['checkInTime'] ?? '';
-      todayCheckOutTime.value = checkInData['checkOutTime'] ?? '';
-      isCheckedIn.value = todayCheckInTime.value.isNotEmpty && 
-                          todayCheckOutTime.value.isEmpty;
+    final timeData = storage.read('workTime_${userEmail.value}_$todayStr');
+    
+    if (timeData != null) {
+      startTime.value = timeData['startTime'] ?? '';
+      endTime.value = timeData['endTime'] ?? '';
+      activeSessionId.value = timeData['sessionId'] ?? '';
+      
+      // Check if there's an active (pending) session for today
+      if (startTime.value.isNotEmpty && endTime.value.isEmpty) {
+        // Active session exists
+        print('📅 [DashboardController] Active session found for today: ${startTime.value}');
+      }
     }
   }
 
-  /// Handle check-in/check-out
-  Future<void> toggleCheckInOut() async {
-    final now = DateTime.now();
-    final today = now.toIso8601String().split('T')[0];
-    final currentTime = '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+  /// Handle start time (login time) - Creates a new work session via API
+  Future<void> setStartTime() async {
+    if (isStartTimeLoading.value) return;
 
-    if (!isCheckedIn.value) {
-      // Check in
-      todayCheckInTime.value = currentTime;
-      isCheckedIn.value = true;
-      
-      await storage.write('checkIn_${userEmail.value}_$today', {
-        'checkInTime': currentTime,
-        'checkOutTime': '',
-      });
+    try {
+      isStartTimeLoading.value = true;
 
+      final now = DateTime.now();
+      final todayStr = now.toIso8601String().split('T')[0];
+      final currentDateTime = '${now.toIso8601String().split('.')[0]}'; // Format: "2025-12-17T09:00:00"
+      final loginTime = currentDateTime.replaceAll('T', ' '); // Format: "2025-12-17 09:00:00"
+
+      // Check if there's already an active session for today
+      if (startTime.value.isNotEmpty && endTime.value.isEmpty) {
+        Get.snackbar(
+          'Warning',
+          'An active work session already exists for today. Please end the current session first.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.orange.shade100,
+          colorText: Colors.orange.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        return;
+      }
+
+      // Call API to create user hours with only login_time and status "pending"
+      final result = await _authService.createUserHours(
+        title: 'Work Day',
+        date: todayStr,
+        loginTime: loginTime,
+        logoutTime: null, // Not sent at this stage
+        totalHours: null, // Not sent at this stage
+        status: 'pending', // Set status as "pending" by default
+      );
+
+      if (result['success'] == true) {
+        // Extract session ID from response if available
+        final sessionData = result['data'];
+        if (sessionData != null && sessionData['id'] != null) {
+          activeSessionId.value = sessionData['id'].toString();
+        }
+
+        // Update local state
+        startTime.value = loginTime;
+        workDate.value = todayStr;
+        endTime.value = ''; // Clear end time for new session
+
+        // Save to local storage
+        await storage.write('workTime_${userEmail.value}_$todayStr', {
+          'startTime': loginTime,
+          'endTime': '',
+          'date': todayStr,
+          'sessionId': activeSessionId.value,
+          'status': 'pending',
+        });
+
+        // Reflect backend response in UI
+        final responseData = result['data'];
+        final entryStatus = responseData != null ? (responseData['status'] ?? 'pending') : 'pending';
+        
+        Get.snackbar(
+          'Success',
+          result['message'] ?? 'Start time recorded: ${loginTime.split(' ')[1]}',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.shade100,
+          colorText: Colors.green.shade900,
+          duration: const Duration(seconds: 2),
+        );
+        
+        print('✅ [DashboardController] Backend response reflected in UI');
+        print('   Entry Status: $entryStatus');
+      } else {
+        Get.snackbar(
+          'Error',
+          result['message'] ?? 'Failed to record start time',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      print('Error setting start time: $e');
       Get.snackbar(
-        'Success',
-        'Checked in at $currentTime',
+        'Error',
+        'Failed to set start time: ${e.toString()}',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.green.shade100,
-        colorText: Colors.green.shade900,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
         duration: const Duration(seconds: 2),
       );
-    } else {
-      // Check out
-      todayCheckOutTime.value = currentTime;
-      isCheckedIn.value = false;
-      
-      await storage.write('checkIn_${userEmail.value}_$today', {
-        'checkInTime': todayCheckInTime.value,
-        'checkOutTime': currentTime,
-      });
+    } finally {
+      isStartTimeLoading.value = false;
+    }
+  }
 
+  /// Handle end time (logout time) - Updates the active work session via API
+  Future<void> setEndTime() async {
+    if (isEndTimeLoading.value) return;
+
+    try {
+      isEndTimeLoading.value = true;
+
+      final now = DateTime.now();
+      final todayStr = now.toIso8601String().split('T')[0];
+      final currentDateTime = '${now.toIso8601String().split('.')[0]}'; // Format: "2025-12-17T18:00:00"
+      final logoutTime = currentDateTime.replaceAll('T', ' '); // Format: "2025-12-17 18:00:00"
+
+      // Check if there's an active session (start time exists but no end time)
+      if (startTime.value.isEmpty || endTime.value.isNotEmpty) {
+        Get.snackbar(
+          'Warning',
+          'No active work session found for today. Please start a session first.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.orange.shade100,
+          colorText: Colors.orange.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        return;
+      }
+
+      // Verify the session is for today
+      if (workDate.value != todayStr) {
+        Get.snackbar(
+          'Warning',
+          'Active session is for a different date. Please start a new session for today.',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.orange.shade100,
+          colorText: Colors.orange.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        return;
+      }
+
+      // Create complete work hours entry with all fields (title, date, login_time, logout_time)
+      // Status remains "pending" even when complete
+      final result = await createCompleteWorkHoursEntry(
+        title: 'Work Day',
+        date: todayStr,
+        loginTime: startTime.value,
+        logoutTime: logoutTime,
+      );
+
+      if (result['success'] == true) {
+        // Extract session ID from response if available
+        final sessionData = result['data'];
+        if (sessionData != null && sessionData['id'] != null) {
+          activeSessionId.value = sessionData['id'].toString();
+        }
+
+        // Update local state
+        endTime.value = logoutTime;
+
+        // Save to local storage
+        await storage.write('workTime_${userEmail.value}_$todayStr', {
+          'startTime': startTime.value,
+          'endTime': logoutTime,
+          'date': todayStr,
+          'sessionId': activeSessionId.value,
+          'status': 'pending', // Status remains "pending"
+        });
+
+        // Reflect backend response in UI
+        final responseData = result['data'];
+        final entryStatus = responseData != null ? (responseData['status'] ?? 'pending') : 'pending';
+        final entryId = responseData != null ? (responseData['id']?.toString() ?? '') : '';
+        
+        if (entryId.isNotEmpty) {
+          activeSessionId.value = entryId;
+        }
+
+        Get.snackbar(
+          'Success',
+          result['message'] ?? 'Complete work hours entry created successfully',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.shade100,
+          colorText: Colors.green.shade900,
+          duration: const Duration(seconds: 3),
+        );
+        
+        print('✅ [DashboardController] Backend response reflected in UI');
+        print('   Entry ID: $entryId');
+        print('   Status: $entryStatus');
+      } else {
+        Get.snackbar(
+          'Error',
+          result['message'] ?? 'Failed to update end time',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      print('Error setting end time: $e');
       Get.snackbar(
-        'Success',
-        'Checked out at $currentTime',
+        'Error',
+        'Failed to set end time: ${e.toString()}',
         snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.orange.shade100,
-        colorText: Colors.orange.shade900,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
         duration: const Duration(seconds: 2),
       );
+    } finally {
+      isEndTimeLoading.value = false;
     }
   }
 
@@ -315,6 +489,46 @@ class DashboardController extends GetxController {
   /// Close manual time entry modal
   void closeManualTimeEntryModal() {
     showManualTimeEntry.value = false;
+  }
+
+  /// Reusable method to create complete work hours entry
+  /// Can be used by Dashboard buttons and Hours screen
+  /// Creates entry with title, date, login_time, logout_time, and status "pending"
+  Future<Map<String, dynamic>> createCompleteWorkHoursEntry({
+    required String title,
+    required String date,
+    required String loginTime,
+    required String logoutTime,
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('📝 [DashboardController] Creating complete work hours entry');
+    print('   Title: $title');
+    print('   Date: $date');
+    print('   Login Time: $loginTime');
+    print('   Logout Time: $logoutTime');
+    print('   Status: pending');
+    print('═══════════════════════════════════════════════════════════');
+
+    final result = await _authService.createUserHours(
+      title: title,
+      date: date,
+      loginTime: loginTime,
+      logoutTime: logoutTime,
+      totalHours: null, // Backend will calculate
+      status: 'pending', // Status remains "pending" after creation
+    );
+
+    if (result['success'] == true) {
+      final sessionData = result['data'];
+      if (sessionData != null) {
+        print('✅ [DashboardController] Complete entry created successfully');
+        print('   Entry ID: ${sessionData['id']}');
+        print('   Status: ${sessionData['status'] ?? 'pending'}');
+        print('═══════════════════════════════════════════════════════════');
+      }
+    }
+
+    return result;
   }
 }
 

@@ -295,17 +295,18 @@ class HoursScreen extends GetView<HoursController> {
     );
   }
 
-  /// Build Work Logs List - matches React component structure
+  /// Build Work Logs List - Card-based layout with static data
   Widget _buildWorkLogsList(bool isDark) {
     return Obx(() {
-      final filteredLogs = controller.getFilteredWorkLogs();
+      // Use all work logs (no filtering for now)
+      final logs = controller.workLogs;
       
-      if (filteredLogs.isEmpty) {
+      if (logs.isEmpty) {
         return Center(
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 48),
             child: Text(
-              'No work logs found for this period',
+              'No work hour entries found',
               style: AppTextStyles.bodyMedium.copyWith(
                 color: isDark
                     ? AppColors.mutedForegroundDark
@@ -317,48 +318,89 @@ class HoursScreen extends GetView<HoursController> {
       }
 
       return ListView.separated(
-        itemCount: filteredLogs.length,
+        itemCount: logs.length,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
-          final log = filteredLogs[index];
+          final log = logs[index];
           return _buildWorkLogCard(log, isDark);
         },
       );
     });
   }
 
-  /// Build individual Work Log Card - matches React component structure
+  /// Build individual Work Hour Entry Card
+  /// Shows: title, date, logged time, total hours, status badge
+  /// Approved entries are visually distinct with green border and background tint
   Widget _buildWorkLogCard(WorkLog log, bool isDark) {
     final statusColor = controller.getStatusColor(log.status);
+    final isApproved = log.status.toLowerCase() == 'approved';
+    final isPending = log.status.toLowerCase() == 'pending';
+    
+    // Format status text for badge
+    final statusText = isPending 
+        ? 'Pending' 
+        : isApproved 
+            ? 'Approved' 
+            : log.status[0].toUpperCase() + log.status.substring(1).toLowerCase();
+    
+    // Make approved entries visually distinct
+    final cardBackgroundColor = isApproved
+        ? (isDark 
+            ? Colors.green.withValues(alpha: 0.1)
+            : Colors.green.withValues(alpha: 0.05))
+        : (isDark ? AppColors.cardDark : AppColors.cardLight);
+    
+    final borderColor = isApproved
+        ? statusColor.withValues(alpha: 0.5)
+        : (isDark ? AppColors.borderDark : AppColors.borderLight);
+    
+    final borderWidth = isApproved ? 2.0 : 1.0;
     
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: isDark ? AppColors.cardDark : AppColors.cardLight,
+        color: cardBackgroundColor,
         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
         border: Border.all(
-          color: isDark ? AppColors.borderDark : AppColors.borderLight,
+          color: borderColor,
+          width: borderWidth,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: isApproved
+                ? statusColor.withValues(alpha: 0.15)
+                : (isDark 
+                    ? Colors.black.withValues(alpha: 0.2)
+                    : Colors.grey.withValues(alpha: 0.1)),
+            blurRadius: isApproved ? 6 : 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header Row - Work Type and Status Badge
+          // Header Row: Title and Status Badge
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Title
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      log.workType,
-                      style: AppTextStyles.labelMedium.copyWith(
+                      log.title,
+                      style: AppTextStyles.labelLarge.copyWith(
                         color: isDark
                             ? AppColors.foregroundDark
                             : AppColors.foregroundLight,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 8),
+                    // Date
                     Row(
                       children: [
                         Icon(
@@ -371,7 +413,7 @@ class HoursScreen extends GetView<HoursController> {
                         const SizedBox(width: 6),
                         Text(
                           controller.formatWorkLogDate(log.date),
-                          style: AppTextStyles.bodySmall.copyWith(
+                          style: AppTextStyles.bodyMedium.copyWith(
                             color: isDark
                                 ? AppColors.mutedForegroundDark
                                 : const Color(0xFF6B7280),
@@ -383,23 +425,42 @@ class HoursScreen extends GetView<HoursController> {
                 ),
               ),
               
-              // Status Badge
+              // Status Badge (Pending or Approved)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(16),
+                  color: statusColor.withValues(alpha: isApproved ? 0.2 : 0.15),
+                  borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: statusColor.withValues(alpha: 0.3),
-                    width: 1,
+                    color: statusColor.withValues(alpha: isApproved ? 0.6 : 0.4),
+                    width: isApproved ? 2.0 : 1.5,
                   ),
                 ),
-                child: Text(
-                  '${log.status[0].toUpperCase()}${log.status.substring(1)}',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: statusColor,
-                    fontWeight: FontWeight.w600,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isApproved)
+                      Icon(
+                        Icons.check_circle,
+                        size: 14,
+                        color: statusColor,
+                      )
+                    else if (isPending)
+                      Icon(
+                        Icons.pending,
+                        size: 14,
+                        color: statusColor,
+                      ),
+                    if (isApproved || isPending) const SizedBox(width: 4),
+                    Text(
+                      statusText,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: statusColor,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -407,53 +468,80 @@ class HoursScreen extends GetView<HoursController> {
 
           const SizedBox(height: 16),
 
-          // Hours and Logged At Row
+          // Divider
+          Divider(
+            height: 1,
+            thickness: 1,
+            color: isDark 
+                ? AppColors.borderDark 
+                : AppColors.borderLight,
+          ),
+
+          const SizedBox(height: 16),
+
+          // Bottom Row: Logged Time and Total Hours
           Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // Hours
+              // Logged Time
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Hours',
+                      'Logged Time',
                       style: AppTextStyles.bodySmall.copyWith(
                         color: isDark
                             ? AppColors.mutedForegroundDark
                             : const Color(0xFF6B7280),
+                        fontSize: 12,
                       ),
                     ),
-                    Text(
-                      '${log.hours}h',
-                      style: AppTextStyles.labelMedium.copyWith(
-                        color: isDark
-                            ? AppColors.foregroundDark
-                            : AppColors.foregroundLight,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.access_time,
+                          size: 16,
+                          color: isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          controller.formatWorkLogTime(log.timestamp),
+                          style: AppTextStyles.labelMedium.copyWith(
+                            color: isDark
+                                ? AppColors.foregroundDark
+                                : AppColors.foregroundLight,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
               ),
-              
-              // Logged At
+
+              // Total Hours
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    'Logged At',
+                    'Total Hours',
                     style: AppTextStyles.bodySmall.copyWith(
                       color: isDark
                           ? AppColors.mutedForegroundDark
                           : const Color(0xFF6B7280),
+                      fontSize: 12,
                     ),
                   ),
+                  const SizedBox(height: 4),
                   Text(
-                    controller.formatWorkLogTime(log.timestamp),
-                    style: AppTextStyles.bodySmall.copyWith(
-                      color: isDark
-                          ? AppColors.foregroundDark
-                          : AppColors.foregroundLight,
+                    '${log.hours.toStringAsFixed(1)}h',
+                    style: AppTextStyles.h3.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
                 ],

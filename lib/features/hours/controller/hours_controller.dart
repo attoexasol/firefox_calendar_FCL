@@ -1,3 +1,4 @@
+import 'package:firefox_calendar/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -5,8 +6,9 @@ import 'package:get_storage/get_storage.dart';
 /// Hours Controller - Updated to match React Hours component
 /// Manages hours tracking, work logs, and timesheet data
 class HoursController extends GetxController {
-  // Storage
+  // Storage and services
   final storage = GetStorage();
+  final AuthService _authService = AuthService();
 
   // Tab management - matching screenshot tabs
   final RxString activeTab = 'day'.obs; // day, week, month
@@ -85,32 +87,67 @@ double get totalHours =>
     currentDate.value = DateTime.now();
   }
 
-  /// Load mock work logs to match screenshot
+  /// Load mock work logs with complete data structure
+  /// Includes: title, date, login_time, logout_time, total hours, and status
+  /// Structured for Dashboard summaries and Payroll calculations
   void _loadMockWorkLogs() {
+    final now = DateTime.now();
+    
     workLogs.value = [
       WorkLog(
         id: '1',
+        title: 'Work Day',
         workType: 'Development',
-        date: DateTime(2025, 12, 10), // 12/10/2025 from screenshot
-        hours: 7.5,
+        date: DateTime(now.year, now.month, now.day), // Today
+        hours: 8.5,
         status: 'pending',
-        timestamp: DateTime(2025, 12, 10, 9, 0), // 09:00 AM
+        timestamp: DateTime(now.year, now.month, now.day, 9, 0), // Logged at 09:00 AM
+        loginTime: DateTime(now.year, now.month, now.day, 9, 0), // Start: 09:00 AM
+        logoutTime: DateTime(now.year, now.month, now.day, 17, 30), // End: 05:30 PM
       ),
       WorkLog(
         id: '2',
+        title: 'Work Day',
         workType: 'Client Meeting',
-        date: DateTime(2025, 12, 9), // 12/9/2025 from screenshot
-        hours: 6.5,
+        date: DateTime(now.year, now.month, now.day - 1), // Yesterday
+        hours: 7.0,
         status: 'approved',
-        timestamp: DateTime(2025, 12, 9, 9, 0), // 09:00 AM
+        timestamp: DateTime(now.year, now.month, now.day - 1, 8, 30), // Logged at 08:30 AM
+        loginTime: DateTime(now.year, now.month, now.day - 1, 8, 30), // Start: 08:30 AM
+        logoutTime: DateTime(now.year, now.month, now.day - 1, 15, 30), // End: 03:30 PM
       ),
       WorkLog(
         id: '3',
+        title: 'Work Day',
         workType: 'Training',
-        date: DateTime(2025, 12, 8), // 12/8/2025 from screenshot
-        hours: 8.0,
+        date: DateTime(now.year, now.month, now.day - 2), // 2 days ago
+        hours: 6.5,
         status: 'approved',
-        timestamp: DateTime(2025, 12, 8, 9, 0), // 09:00 AM
+        timestamp: DateTime(now.year, now.month, now.day - 2, 9, 15), // Logged at 09:15 AM
+        loginTime: DateTime(now.year, now.month, now.day - 2, 9, 15), // Start: 09:15 AM
+        logoutTime: DateTime(now.year, now.month, now.day - 2, 15, 45), // End: 03:45 PM
+      ),
+      WorkLog(
+        id: '4',
+        title: 'Work Day',
+        workType: 'Development',
+        date: DateTime(now.year, now.month, now.day - 3), // 3 days ago
+        hours: 8.0,
+        status: 'pending',
+        timestamp: DateTime(now.year, now.month, now.day - 3, 8, 45), // Logged at 08:45 AM
+        loginTime: DateTime(now.year, now.month, now.day - 3, 8, 45), // Start: 08:45 AM
+        logoutTime: DateTime(now.year, now.month, now.day - 3, 16, 45), // End: 04:45 PM
+      ),
+      WorkLog(
+        id: '5',
+        title: 'Work Day',
+        workType: 'Project Review',
+        date: DateTime(now.year, now.month, now.day - 4), // 4 days ago
+        hours: 7.5,
+        status: 'approved',
+        timestamp: DateTime(now.year, now.month, now.day - 4, 9, 0), // Logged at 09:00 AM
+        loginTime: DateTime(now.year, now.month, now.day - 4, 9, 0), // Start: 09:00 AM
+        logoutTime: DateTime(now.year, now.month, now.day - 4, 16, 30), // End: 04:30 PM
       ),
     ];
   }
@@ -205,43 +242,488 @@ double get totalHours =>
     
     return '$displayHour:$minute $period';
   }
+
+  /// Reusable method to create complete work hours entry
+  /// Can be used by Hours screen and Dashboard
+  /// Creates entry with title, date, login_time, logout_time, and status "pending"
+  Future<Map<String, dynamic>> createCompleteWorkHoursEntry({
+    required String title,
+    required String date,
+    required String loginTime,
+    required String logoutTime,
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('📝 [HoursController] Creating complete work hours entry');
+    print('   Title: $title');
+    print('   Date: $date');
+    print('   Login Time: $loginTime');
+    print('   Logout Time: $logoutTime');
+    print('   Status: pending');
+    print('═══════════════════════════════════════════════════════════');
+
+    final result = await _authService.createUserHours(
+      title: title,
+      date: date,
+      loginTime: loginTime,
+      logoutTime: logoutTime,
+      totalHours: null, // Backend will calculate
+      status: 'pending', // Status remains "pending" after creation
+    );
+
+    if (result['success'] == true) {
+      final sessionData = result['data'];
+      if (sessionData != null) {
+        print('✅ [HoursController] Complete entry created successfully');
+        print('   Entry ID: ${sessionData['id']}');
+        print('   Status: ${sessionData['status'] ?? 'pending'}');
+        print('═══════════════════════════════════════════════════════════');
+        
+        // Refresh work logs after creation
+        await refreshWorkLogs();
+      }
+    }
+
+    return result;
+  }
+
+  /// Update an existing work hours entry
+  /// Parameters: id, title (optional), date (optional), loginTime (optional), logoutTime (optional), status (optional)
+  /// Returns: Map with success status and message
+  Future<Map<String, dynamic>> updateWorkLog({
+    required String id,
+    String? title,
+    String? date,
+    String? loginTime,
+    String? logoutTime,
+    String? status,
+  }) async {
+    if (isLoading.value) {
+      return {
+        'success': false,
+        'message': 'Another operation is in progress',
+      };
+    }
+
+    try {
+      isLoading.value = true;
+
+      print('═══════════════════════════════════════════════════════════');
+      print('📝 [HoursController] Updating work hours entry');
+      print('   Entry ID: $id');
+      if (title != null) print('   Title: $title');
+      if (date != null) print('   Date: $date');
+      if (loginTime != null) print('   Login Time: $loginTime');
+      if (logoutTime != null) print('   Logout Time: $logoutTime');
+      if (status != null) print('   Status: $status');
+      print('═══════════════════════════════════════════════════════════');
+
+      final result = await _authService.updateUserHours(
+        id: id,
+        title: title,
+        date: date,
+        loginTime: loginTime,
+        logoutTime: logoutTime,
+        status: status,
+      );
+
+      if (result['success'] == true) {
+        print('✅ [HoursController] Entry updated successfully');
+        
+        // Refresh work logs after update
+        await refreshWorkLogs();
+
+        Get.snackbar(
+          'Success',
+          result['message'] ?? 'Work hours entry updated successfully',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.shade100,
+          colorText: Colors.green.shade900,
+          duration: const Duration(seconds: 2),
+        );
+      } else {
+        Get.snackbar(
+          'Error',
+          result['message'] ?? 'Failed to update work hours entry',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+      }
+
+      return result;
+    } catch (e) {
+      print('❌ [HoursController] Error updating work log: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to update work hours entry: ${e.toString()}',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 2),
+      );
+      return {
+        'success': false,
+        'message': 'Error updating work hours entry',
+        'error': e.toString(),
+      };
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Delete a work hours entry with confirmation
+  /// Parameters: id - The ID of the entry to delete
+  /// Returns: Map with success status and message
+  Future<Map<String, dynamic>> deleteWorkLog({
+    required String id,
+  }) async {
+    if (isLoading.value) {
+      return {
+        'success': false,
+        'message': 'Another operation is in progress',
+      };
+    }
+
+    // Show confirmation dialog
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Text('Delete Work Hours Entry'),
+        content: const Text('Are you sure you want to delete this work hours entry? This action cannot be undone.'),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Get.back(result: true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return {
+        'success': false,
+        'message': 'Delete operation cancelled',
+      };
+    }
+
+    try {
+      isLoading.value = true;
+
+      print('═══════════════════════════════════════════════════════════');
+      print('🗑️ [HoursController] Deleting work hours entry');
+      print('   Entry ID: $id');
+      print('═══════════════════════════════════════════════════════════');
+
+      final result = await _authService.deleteUserHours(id: id);
+
+      if (result['success'] == true) {
+        print('✅ [HoursController] Entry deleted successfully');
+        
+        // Remove from local list
+        workLogs.removeWhere((log) => log.id == id);
+        workLogs.refresh();
+
+        // Refresh work logs after delete
+        await refreshWorkLogs();
+
+        Get.snackbar(
+          'Success',
+          result['message'] ?? 'Work hours entry deleted successfully',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.shade100,
+          colorText: Colors.green.shade900,
+          duration: const Duration(seconds: 2),
+        );
+      } else {
+        Get.snackbar(
+          'Error',
+          result['message'] ?? 'Failed to delete work hours entry',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+      }
+
+      return result;
+    } catch (e) {
+      print('❌ [HoursController] Error deleting work log: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to delete work hours entry: ${e.toString()}',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 2),
+      );
+      return {
+        'success': false,
+        'message': 'Error deleting work hours entry',
+        'error': e.toString(),
+      };
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Refresh work logs list from API
+  /// This method should be called after create, update, or delete operations
+  Future<void> refreshWorkLogs() async {
+    print('🔄 [HoursController] Refreshing work logs list');
+    
+    // TODO: Implement API call to fetch work logs
+    // For now, we'll just refresh the observable list
+    workLogs.refresh();
+    
+    print('✅ [HoursController] Work logs list refreshed');
+  }
+
+  // ============================================================
+  // Helper methods for Dashboard summaries and Payroll calculations
+  // These methods are structured for future use but not implemented yet
+  // ============================================================
+
+  /// Get work logs for today
+  /// Returns: List of WorkLog entries for today's date
+  /// Use case: Dashboard "Hours Today" summary
+  List<WorkLog> getTodayWorkLogs() {
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    
+    return workLogs.where((log) {
+      final logDate = DateTime(log.date.year, log.date.month, log.date.day);
+      return logDate.isAtSameMomentAs(todayDate);
+    }).toList();
+  }
+
+  /// Get work logs for current week
+  /// Returns: List of WorkLog entries within the current week
+  /// Use case: Dashboard "Hours This Week" summary
+  List<WorkLog> getThisWeekWorkLogs() {
+    final weekDates = _getCurrentWeekDates();
+    final weekStart = weekDates.first;
+    final weekEnd = weekDates.last;
+    
+    return workLogs.where((log) {
+      return log.isInDateRange(weekStart, weekEnd);
+    }).toList();
+  }
+
+  /// Get approved work logs only
+  /// Returns: List of WorkLog entries with status "approved"
+  /// Use case: Payroll calculations (only approved hours count)
+  List<WorkLog> getApprovedWorkLogs() {
+    return workLogs.where((log) => log.isApproved).toList();
+  }
+
+  /// Get approved work logs for a specific date range
+  /// Parameters: startDate, endDate
+  /// Returns: List of approved WorkLog entries within the date range
+  /// Use case: Payroll calculations for specific period
+  List<WorkLog> getApprovedWorkLogsInRange(DateTime startDate, DateTime endDate) {
+    return workLogs.where((log) {
+      return log.isApproved && log.isInDateRange(startDate, endDate);
+    }).toList();
+  }
+
+  /// Calculate total hours from a list of work logs
+  /// Parameters: List of WorkLog entries
+  /// Returns: Total hours as double
+  /// Use case: Dashboard summaries and Payroll calculations
+  double calculateTotalHours(List<WorkLog> logs) {
+    return logs.fold(0.0, (sum, log) => sum + log.hours);
+  }
+
+  /// Get work logs with complete time information
+  /// Returns: List of WorkLog entries that have both loginTime and logoutTime
+  /// Use case: Data validation and accurate time tracking
+  List<WorkLog> getCompleteWorkLogs() {
+    return workLogs.where((log) => log.hasCompleteTimeInfo).toList();
+  }
+
+  /// Validate work log data consistency
+  /// Returns: Map with validation results
+  /// Use case: Ensure data integrity before Dashboard/Payroll calculations
+  Map<String, dynamic> validateWorkLogData() {
+    final totalEntries = workLogs.length;
+    final entriesWithCompleteTime = getCompleteWorkLogs().length;
+    final approvedEntries = getApprovedWorkLogs().length;
+    final todayEntries = getTodayWorkLogs().length;
+    final thisWeekEntries = getThisWeekWorkLogs().length;
+
+    return {
+      'totalEntries': totalEntries,
+      'entriesWithCompleteTime': entriesWithCompleteTime,
+      'entriesMissingTimeInfo': totalEntries - entriesWithCompleteTime,
+      'approvedEntries': approvedEntries,
+      'todayEntries': todayEntries,
+      'thisWeekEntries': thisWeekEntries,
+      'isDataConsistent': entriesWithCompleteTime == totalEntries,
+    };
+  }
 }
 
-/// Work Log Model - matches React component structure
+/// Work Log Model - for work hours entries
+/// 
+/// Structured to support:
+/// - Dashboard summaries (Hours Today, Hours This Week)
+/// - Payroll calculations (approved hours only)
+/// - Accurate time tracking (login_time and logout_time)
+/// 
+/// Data Structure:
+/// - id: Unique identifier
+/// - title: Entry title (e.g., "Work Day")
+/// - workType: Type of work (e.g., "Development", "Client Meeting")
+/// - date: Work date (YYYY-MM-DD, time component should be 00:00:00)
+/// - hours: Total hours worked (calculated from loginTime and logoutTime)
+/// - status: Entry status ("pending", "approved", "rejected") - defaults to "pending"
+/// - timestamp: When the entry was logged/created
+/// - loginTime: Start time of work session (required for accurate tracking)
+/// - logoutTime: End time of work session (required for accurate tracking)
+/// 
+/// Usage:
+/// - Dashboard: Use getTodayWorkLogs() and getThisWeekWorkLogs() for summaries
+/// - Payroll: Use getApprovedWorkLogs() or getApprovedWorkLogsInRange() for calculations
+/// - Validation: Use hasCompleteTimeInfo to ensure data integrity
 class WorkLog {
   final String id;
+  final String title; // Work Day, etc.
   final String workType; // Development, Client Meeting, Training, etc.
-  final DateTime date;
-  final double hours;
-  final String status; // pending, approved, rejected
-  final DateTime timestamp; // when entry was logged
+  final DateTime date; // Work date (YYYY-MM-DD)
+  final double hours; // Total hours worked (calculated from loginTime and logoutTime)
+  final String status; // pending, approved, rejected (default: "pending")
+  final DateTime timestamp; // Logged time (when entry was created)
+  
+  // Start and end times - required for Dashboard summaries and Payroll calculations
+  final DateTime? loginTime; // Start time (when work session started)
+  final DateTime? logoutTime; // End time (when work session ended)
 
   WorkLog({
     required this.id,
+    required this.title,
     required this.workType,
     required this.date,
     required this.hours,
-    required this.status,
+    String? status, // Optional, defaults to "pending"
     required this.timestamp,
-  });
+    this.loginTime, // Optional - start time of work session
+    this.logoutTime, // Optional - end time of work session
+  }) : status = status ?? 'pending'; // Default status is "pending"
+
+  /// Check if entry has complete time information (both start and end times)
+  bool get hasCompleteTimeInfo => loginTime != null && logoutTime != null;
+
+  /// Check if entry is approved (for payroll calculations)
+  bool get isApproved => status.toLowerCase() == 'approved';
+
+  /// Check if entry is for today
+  bool isToday() {
+    final now = DateTime.now();
+    return date.year == now.year && 
+           date.month == now.month && 
+           date.day == now.day;
+  }
+
+  /// Check if entry is within a date range (for week/month summaries)
+  bool isInDateRange(DateTime startDate, DateTime endDate) {
+    return date.isAfter(startDate.subtract(const Duration(days: 1))) &&
+           date.isBefore(endDate.add(const Duration(days: 1)));
+  }
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'title': title,
     'workType': workType,
     'date': date.toIso8601String(),
     'hours': hours,
     'status': status,
     'timestamp': timestamp.toIso8601String(),
+    'login_time': loginTime?.toIso8601String(),
+    'logout_time': logoutTime?.toIso8601String(),
   };
 
-  factory WorkLog.fromJson(Map<String, dynamic> json) => WorkLog(
-    id: json['id'] ?? '',
-    workType: json['workType'] ?? 'Development',
-    date: json['date'] != null ? DateTime.parse(json['date']) : DateTime.now(),
-    hours: json['hours']?.toDouble() ?? 0.0,
-    status: json['status'] ?? 'pending',
-    timestamp: json['timestamp'] != null 
-        ? DateTime.parse(json['timestamp']) 
-        : DateTime.now(),
-  );
+  factory WorkLog.fromJson(Map<String, dynamic> json) {
+    // Parse date
+    DateTime parsedDate;
+    if (json['date'] != null) {
+      final dateStr = json['date'].toString();
+      // Handle both ISO format and date-only format
+      if (dateStr.contains('T')) {
+        parsedDate = DateTime.parse(dateStr);
+      } else {
+        parsedDate = DateTime.parse('${dateStr}T00:00:00');
+      }
+      // Extract date only (remove time component)
+      parsedDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+    } else {
+      parsedDate = DateTime.now();
+      parsedDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+    }
+
+    // Parse login_time (start time)
+    DateTime? parsedLoginTime;
+    if (json['login_time'] != null) {
+      try {
+        parsedLoginTime = DateTime.parse(json['login_time'].toString());
+      } catch (e) {
+        print('⚠️ [WorkLog] Error parsing login_time: ${json['login_time']}');
+      }
+    }
+
+    // Parse logout_time (end time)
+    DateTime? parsedLogoutTime;
+    if (json['logout_time'] != null) {
+      try {
+        parsedLogoutTime = DateTime.parse(json['logout_time'].toString());
+      } catch (e) {
+        print('⚠️ [WorkLog] Error parsing logout_time: ${json['logout_time']}');
+      }
+    }
+
+    // Parse timestamp (logged time)
+    DateTime parsedTimestamp;
+    if (json['timestamp'] != null || json['created_at'] != null) {
+      final timestampStr = json['timestamp'] ?? json['created_at'];
+      try {
+        parsedTimestamp = DateTime.parse(timestampStr.toString());
+      } catch (e) {
+        parsedTimestamp = DateTime.now();
+      }
+    } else {
+      parsedTimestamp = DateTime.now();
+    }
+
+    // Parse hours (total_hours)
+    double parsedHours = 0.0;
+    if (json['hours'] != null) {
+      if (json['hours'] is double) {
+        parsedHours = json['hours'] as double;
+      } else if (json['hours'] is int) {
+        parsedHours = (json['hours'] as int).toDouble();
+      } else if (json['hours'] is String) {
+        parsedHours = double.tryParse(json['hours'].toString()) ?? 0.0;
+      }
+    } else if (json['total_hours'] != null) {
+      // Handle format like "8h" or "8.5h"
+      final totalHoursStr = json['total_hours'].toString().replaceAll('h', '').replaceAll('H', '').trim();
+      parsedHours = double.tryParse(totalHoursStr) ?? 0.0;
+    }
+
+    return WorkLog(
+      id: json['id']?.toString() ?? '',
+      title: json['title'] ?? 'Work Day',
+      workType: json['workType'] ?? 'Development',
+      date: parsedDate,
+      hours: parsedHours,
+      status: json['status'] ?? 'pending',
+      timestamp: parsedTimestamp,
+      loginTime: parsedLoginTime,
+      logoutTime: parsedLogoutTime,
+    );
+  }
 }

@@ -26,6 +26,9 @@ class AuthService {
   static const String getSingleEventEndpoint = '$baseUrl/single/events';
   static const String getAllEventsEndpoint = '$baseUrl/all/events';
   static const String getMyEventsEndpoint = '$baseUrl/my/events';
+  static const String createUserHoursEndpoint = '$baseUrl/create/user_hours';
+  static const String updateUserHoursEndpoint = '$baseUrl/update/user_hours';
+  static const String deleteUserHoursEndpoint = '$baseUrl/delete/user_hours';
   
   // =========================================================
   // DEPENDENCIES
@@ -1021,5 +1024,288 @@ class AuthService {
       'sessionExpiry': _storage.read('sessionExpiry'),
       'loginTimestamp': _storage.read('loginTimestamp'),
     };
+  }
+
+  /// Create complete user hours entry
+  /// Parameters: title, date, loginTime, logoutTime (optional), totalHours (optional), status (optional)
+  /// Returns: Map with success status and message
+  /// Note: Status defaults to "pending" and remains "pending" even when complete
+  Future<Map<String, dynamic>> createUserHours({
+    required String title,
+    required String date,
+    required String loginTime,
+    String? logoutTime,
+    String? totalHours,
+    String? status,
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Create User Hours');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+      };
+    }
+
+    try {
+      final requestData = <String, dynamic>{
+        'api_token': apiToken,
+        'title': title,
+        'date': date,
+        'login_time': loginTime,
+      };
+      
+      // Only include logout_time if provided
+      if (logoutTime != null && logoutTime.isNotEmpty) {
+        requestData['logout_time'] = logoutTime;
+      }
+      
+      // Only include total_hours if provided
+      if (totalHours != null && totalHours.isNotEmpty) {
+        requestData['total_hours'] = totalHours;
+      }
+      
+      // Status should remain "pending" after creation (even when complete)
+      requestData['status'] = status ?? 'pending';
+
+      // Log request details
+      print('📍 URL: $createUserHoursEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
+
+      final response = await http.post(
+        Uri.parse(createUserHoursEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      // Accept both 200 (OK) and 201 (Created) as success
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ [AuthService] Create User Hours response status: ${response.statusCode}');
+        print('✅ [AuthService] Create User Hours response body: ${response.body}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'User hours created successfully',
+          'data': responseData['data'],
+        };
+      } else {
+        print('❌ [AuthService] Create User Hours failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to create user hours',
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Create User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Update user hours entry - Edits an existing work hours entry
+  /// Parameters: id (required), title (optional), date (optional), loginTime (optional), logoutTime (optional), status (optional)
+  /// Returns: Map with success status and message
+  Future<Map<String, dynamic>> updateUserHours({
+    required String id,
+    String? title,
+    String? date,
+    String? loginTime,
+    String? logoutTime,
+    String? status,
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Update User Hours');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+      };
+    }
+
+    try {
+      final requestData = <String, dynamic>{
+        'api_token': apiToken,
+        'id': id,
+      };
+      
+      // Include optional fields only if provided
+      if (title != null && title.isNotEmpty) {
+        requestData['title'] = title;
+      }
+      if (date != null && date.isNotEmpty) {
+        requestData['date'] = date;
+      }
+      if (loginTime != null && loginTime.isNotEmpty) {
+        requestData['login_time'] = loginTime;
+      }
+      if (logoutTime != null && logoutTime.isNotEmpty) {
+        requestData['logout_time'] = logoutTime;
+      }
+      if (status != null && status.isNotEmpty) {
+        requestData['status'] = status;
+      }
+
+      // Log request details
+      print('📍 URL: $updateUserHoursEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
+
+      final response = await http.post(
+        Uri.parse(updateUserHoursEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      // Accept both 200 (OK) and 201 (Created) as success
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ [AuthService] Update User Hours response status: ${response.statusCode}');
+        print('✅ [AuthService] Update User Hours response body: ${response.body}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'User hours updated successfully',
+          'data': responseData['data'],
+        };
+      } else {
+        print('❌ [AuthService] Update User Hours failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to update user hours',
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Update User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Delete user hours entry
+  /// Parameters: id (required) - The ID of the entry to delete
+  /// Returns: Map with success status and message
+  Future<Map<String, dynamic>> deleteUserHours({
+    required String id,
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Delete User Hours');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+      };
+    }
+
+    try {
+      final requestData = <String, dynamic>{
+        'api_token': apiToken,
+        'id': id,
+      };
+
+      // Log request details
+      print('📍 URL: $deleteUserHoursEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
+
+      final response = await http.post(
+        Uri.parse(deleteUserHoursEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      // Accept both 200 (OK) and 201 (Created) as success
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ [AuthService] Delete User Hours response status: ${response.statusCode}');
+        print('✅ [AuthService] Delete User Hours response body: ${response.body}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'User hours deleted successfully',
+          'data': responseData['data'],
+        };
+      } else {
+        print('❌ [AuthService] Delete User Hours failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to delete user hours',
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Delete User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
   }
 }
