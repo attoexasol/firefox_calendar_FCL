@@ -29,6 +29,7 @@ class AuthService {
   static const String createUserHoursEndpoint = '$baseUrl/create/user_hours';
   static const String updateUserHoursEndpoint = '$baseUrl/update/user_hours';
   static const String deleteUserHoursEndpoint = '$baseUrl/delete/user_hours';
+  static const String getUserHoursEndpoint = '$baseUrl/all/user_hours'; // Get user work hours entries
   
   // =========================================================
   // DEPENDENCIES
@@ -1230,6 +1231,9 @@ class AuthService {
   }
 
   /// Delete user hours entry
+  /// Rules:
+  /// - Backend denies delete if status = approved
+  /// - Only pending entries can be deleted
   /// Parameters: id (required) - The ID of the entry to delete
   /// Returns: Map with success status and message
   Future<Map<String, dynamic>> deleteUserHours({
@@ -1304,6 +1308,91 @@ class AuthService {
       return {
         'success': false,
         'message': 'Network error. Please check your connection.',
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Get user work hours entries
+  /// Parameters: range (day|week|month), current_date (YYYY-MM-DD)
+  /// Returns: Map with success status and list of work hours entries
+  Future<Map<String, dynamic>> getUserHours({
+    required String range, // day, week, or month
+    required String currentDate, // YYYY-MM-DD format
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Get User Hours');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+        'data': [],
+      };
+    }
+
+    try {
+      // Build query parameters
+      final queryParams = <String, String>{
+        'api_token': apiToken,
+        'range': range, // day, week, or month
+        'current_date': currentDate, // YYYY-MM-DD
+      };
+
+      final uri = Uri.parse(getUserHoursEndpoint).replace(queryParameters: queryParams);
+
+      // Log request details
+      print('📍 URL: $uri');
+      print('🔷 METHOD: GET');
+      print('📤 REQUEST HEADERS:');
+      print('   Accept: application/json');
+      print('📤 QUERY PARAMETERS:');
+      queryParams.forEach((key, value) {
+        print('   $key: $value');
+      });
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+        },
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        print('✅ [AuthService] Get User Hours response status: ${response.statusCode}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'User hours fetched successfully',
+          'data': responseData['data'] ?? [],
+        };
+      } else {
+        print('❌ [AuthService] Get User Hours failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to fetch user hours',
+          'data': [],
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Get User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'data': [],
         'error': e.toString(),
       };
     }

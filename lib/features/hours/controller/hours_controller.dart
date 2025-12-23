@@ -39,7 +39,8 @@ double get totalHours =>
   void onInit() {
     super.onInit();
     _loadUserData();
-    _loadMockWorkLogs();
+    // Fetch work hours from API instead of mock data
+    fetchWorkHours();
   }
 
   /// Load user data from storage
@@ -49,8 +50,29 @@ double get totalHours =>
   }
 
   /// Tab management methods
+  /// When tab changes, fetch work hours for the new range
   void setActiveTab(String tab) {
     activeTab.value = tab;
+    // Fetch work hours for the new range
+    fetchWorkHours();
+  }
+
+  /// Navigate to previous week/month
+  void navigateToPreviousWeek() {
+    currentDate.value = currentDate.value.subtract(const Duration(days: 7));
+    fetchWorkHours();
+  }
+
+  /// Navigate to next week/month
+  void navigateToNextWeek() {
+    currentDate.value = currentDate.value.add(const Duration(days: 7));
+    fetchWorkHours();
+  }
+
+  /// Navigate to current week/month (Today button)
+  void navigateToToday() {
+    currentDate.value = DateTime.now();
+    fetchWorkHours();
   }
 
   /// Get current week dates for header display
@@ -72,20 +94,6 @@ double get totalHours =>
     });
   }
 
-  /// Navigate to previous week
-  void navigateToPreviousWeek() {
-    currentDate.value = currentDate.value.subtract(const Duration(days: 7));
-  }
-
-  /// Navigate to next week
-  void navigateToNextWeek() {
-    currentDate.value = currentDate.value.add(const Duration(days: 7));
-  }
-
-  /// Navigate to current week (Today button)
-  void navigateToToday() {
-    currentDate.value = DateTime.now();
-  }
 
   /// Load mock work logs with complete data structure
   /// Includes: title, date, login_time, logout_time, total hours, and status
@@ -424,12 +432,12 @@ double get totalHours =>
       if (result['success'] == true) {
         print('✅ [HoursController] Entry deleted successfully');
         
-        // Remove from local list
+        // Remove entry from local state
         workLogs.removeWhere((log) => log.id == id);
         workLogs.refresh();
 
-        // Refresh work logs after delete
-        await refreshWorkLogs();
+        // Recalculate total hours (automatically updates via getter)
+        // Total hours will be recalculated based on remaining entries
 
         Get.snackbar(
           'Success',
@@ -471,16 +479,62 @@ double get totalHours =>
     }
   }
 
+  /// Fetch work hours from API
+  /// Fetches entries based on current tab (day/week/month) and current date
+  /// Controller handles filtering & grouping
+  Future<void> fetchWorkHours() async {
+    if (isLoading.value) return;
+
+    try {
+      isLoading.value = true;
+      print('🔄 [HoursController] Fetching work hours from API');
+      print('   Range: ${activeTab.value}');
+      print('   Current Date: ${currentDate.value}');
+
+      // Format current date as YYYY-MM-DD
+      final currentDateStr = currentDate.value.toIso8601String().split('T')[0];
+
+      // Call API with range and current_date
+      final result = await _authService.getUserHours(
+        range: activeTab.value, // day, week, or month
+        currentDate: currentDateStr, // YYYY-MM-DD
+      );
+
+      if (result['success'] == true) {
+        final data = result['data'];
+        if (data is List) {
+          // Parse API response to WorkLog objects
+          workLogs.value = data.map((entry) {
+            return WorkLog.fromApiJson(entry as Map<String, dynamic>);
+          }).toList();
+          
+          // Sort by date (newest first)
+          workLogs.sort((a, b) => b.date.compareTo(a.date));
+          workLogs.refresh();
+
+          print('✅ [HoursController] Fetched ${workLogs.length} work hours entries');
+          print('   Filtered entries: ${getFilteredWorkLogs().length}');
+        } else {
+          workLogs.value = [];
+          print('⚠️ [HoursController] No work hours entries found');
+        }
+      } else {
+        print('❌ [HoursController] Failed to fetch work hours: ${result['message']}');
+        // Fallback to empty list on error
+        workLogs.value = [];
+      }
+    } catch (e) {
+      print('❌ [HoursController] Error fetching work hours: $e');
+      workLogs.value = [];
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
   /// Refresh work logs list from API
   /// This method should be called after create, update, or delete operations
   Future<void> refreshWorkLogs() async {
-    print('🔄 [HoursController] Refreshing work logs list');
-    
-    // TODO: Implement API call to fetch work logs
-    // For now, we'll just refresh the observable list
-    workLogs.refresh();
-    
-    print('✅ [HoursController] Work logs list refreshed');
+    await fetchWorkHours();
   }
 
   // ============================================================
@@ -712,6 +766,109 @@ class WorkLog {
       // Handle format like "8h" or "8.5h"
       final totalHoursStr = json['total_hours'].toString().replaceAll('h', '').replaceAll('H', '').trim();
       parsedHours = double.tryParse(totalHoursStr) ?? 0.0;
+    }
+
+    return WorkLog(
+      id: json['id']?.toString() ?? '',
+      title: json['title'] ?? 'Work Day',
+      workType: json['workType'] ?? 'Development',
+      date: parsedDate,
+      hours: parsedHours,
+      status: json['status'] ?? 'pending',
+      timestamp: parsedTimestamp,
+      loginTime: parsedLoginTime,
+      logoutTime: parsedLogoutTime,
+    );
+  }
+
+  /// Factory constructor for API response format
+  /// API returns: date (YYYY-MM-DD), login_time (HH:MM), logout_time (HH:MM), total_hours (number), status
+  factory WorkLog.fromApiJson(Map<String, dynamic> json) {
+    // Parse date (YYYY-MM-DD format)
+    DateTime parsedDate;
+    if (json['date'] != null) {
+      final dateStr = json['date'].toString();
+      // Handle both ISO format and date-only format
+      if (dateStr.contains('T')) {
+        parsedDate = DateTime.parse(dateStr);
+      } else {
+        parsedDate = DateTime.parse('${dateStr}T00:00:00');
+      }
+      // Extract date only (remove time component)
+      parsedDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+    } else {
+      parsedDate = DateTime.now();
+      parsedDate = DateTime(parsedDate.year, parsedDate.month, parsedDate.day);
+    }
+
+    // Parse login_time (HH:MM format like "09:00" or full datetime)
+    DateTime? parsedLoginTime;
+    if (json['login_time'] != null) {
+      try {
+        final loginTimeStr = json['login_time'].toString();
+        if (loginTimeStr.contains('T') || loginTimeStr.contains(' ')) {
+          // Full datetime format
+          parsedLoginTime = DateTime.parse(loginTimeStr);
+        } else {
+          // Time-only format (HH:MM) - combine with date
+          final timeParts = loginTimeStr.split(':');
+          if (timeParts.length >= 2) {
+            final hour = int.tryParse(timeParts[0]) ?? 0;
+            final minute = int.tryParse(timeParts[1]) ?? 0;
+            parsedLoginTime = DateTime(parsedDate.year, parsedDate.month, parsedDate.day, hour, minute);
+          }
+        }
+      } catch (e) {
+        print('⚠️ [WorkLog] Error parsing login_time: ${json['login_time']}');
+      }
+    }
+
+    // Parse logout_time (HH:MM format like "17:30" or full datetime)
+    DateTime? parsedLogoutTime;
+    if (json['logout_time'] != null) {
+      try {
+        final logoutTimeStr = json['logout_time'].toString();
+        if (logoutTimeStr.contains('T') || logoutTimeStr.contains(' ')) {
+          // Full datetime format
+          parsedLogoutTime = DateTime.parse(logoutTimeStr);
+        } else {
+          // Time-only format (HH:MM) - combine with date
+          final timeParts = logoutTimeStr.split(':');
+          if (timeParts.length >= 2) {
+            final hour = int.tryParse(timeParts[0]) ?? 0;
+            final minute = int.tryParse(timeParts[1]) ?? 0;
+            parsedLogoutTime = DateTime(parsedDate.year, parsedDate.month, parsedDate.day, hour, minute);
+          }
+        }
+      } catch (e) {
+        print('⚠️ [WorkLog] Error parsing logout_time: ${json['logout_time']}');
+      }
+    }
+
+    // Parse timestamp (use created_at if available, otherwise use current time)
+    DateTime parsedTimestamp;
+    if (json['created_at'] != null) {
+      try {
+        parsedTimestamp = DateTime.parse(json['created_at'].toString());
+      } catch (e) {
+        parsedTimestamp = DateTime.now();
+      }
+    } else {
+      parsedTimestamp = DateTime.now();
+    }
+
+    // Parse total_hours (number format)
+    double parsedHours = 0.0;
+    if (json['total_hours'] != null) {
+      if (json['total_hours'] is double) {
+        parsedHours = json['total_hours'] as double;
+      } else if (json['total_hours'] is int) {
+        parsedHours = (json['total_hours'] as int).toDouble();
+      } else if (json['total_hours'] is String) {
+        // Handle format like "8.5" or "8.5h"
+        final totalHoursStr = json['total_hours'].toString().replaceAll('h', '').replaceAll('H', '').trim();
+        parsedHours = double.tryParse(totalHoursStr) ?? 0.0;
+      }
     }
 
     return WorkLog(

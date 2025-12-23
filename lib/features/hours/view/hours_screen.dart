@@ -167,18 +167,39 @@ class HoursScreen extends GetView<HoursController> {
             ),
           ),
 
-          // Date Range
+          // Date Range - Shows different format based on active tab
           Expanded(
-            child: Obx(() => Text(
-              controller.getCurrentWeekRange(),
-              style: AppTextStyles.labelMedium.copyWith(
-                color: isDark
-                    ? AppColors.foregroundDark
-                    : AppColors.foregroundLight,
-                fontWeight: FontWeight.w600,
-              ),
-              textAlign: TextAlign.center,
-            )),
+            child: Obx(() {
+              String dateRangeText;
+              switch (controller.activeTab.value) {
+                case 'day':
+                  final date = controller.currentDate.value;
+                  dateRangeText = '${date.month}/${date.day}/${date.year}';
+                  break;
+                case 'week':
+                  dateRangeText = controller.getCurrentWeekRange();
+                  break;
+                case 'month':
+                  final date = controller.currentDate.value;
+                  final monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                      'July', 'August', 'September', 'October', 'November', 'December'];
+                  dateRangeText = '${monthNames[date.month - 1]} ${date.year}';
+                  break;
+                default:
+                  dateRangeText = '';
+              }
+              
+              return Text(
+                dateRangeText,
+                style: AppTextStyles.labelMedium.copyWith(
+                  color: isDark
+                      ? AppColors.foregroundDark
+                      : AppColors.foregroundLight,
+                  fontWeight: FontWeight.w600,
+                ),
+                textAlign: TextAlign.center,
+              );
+            }),
           ),
 
           // Today Button
@@ -295,18 +316,30 @@ class HoursScreen extends GetView<HoursController> {
     );
   }
 
-  /// Build Work Logs List - Card-based layout with static data
+  /// Build Work Logs List - Card-based layout
+  /// Displays entries grouped by day/week/month based on selected range
+  /// Controller handles filtering & grouping
   Widget _buildWorkLogsList(bool isDark) {
     return Obx(() {
-      // Use all work logs (no filtering for now)
-      final logs = controller.workLogs;
+      // Get filtered work logs based on active tab (day/week/month)
+      // Controller handles filtering & grouping
+      final filteredLogs = controller.getFilteredWorkLogs();
       
-      if (logs.isEmpty) {
+      if (controller.isLoading.value) {
+        return const Center(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 48),
+            child: CircularProgressIndicator(),
+          ),
+        );
+      }
+      
+      if (filteredLogs.isEmpty) {
         return Center(
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 48),
             child: Text(
-              'No work hour entries found',
+              'No work hour entries found for this period',
               style: AppTextStyles.bodyMedium.copyWith(
                 color: isDark
                     ? AppColors.mutedForegroundDark
@@ -318,10 +351,10 @@ class HoursScreen extends GetView<HoursController> {
       }
 
       return ListView.separated(
-        itemCount: logs.length,
+        itemCount: filteredLogs.length,
         separatorBuilder: (context, index) => const SizedBox(height: 12),
         itemBuilder: (context, index) {
-          final log = logs[index];
+          final log = filteredLogs[index];
           return _buildWorkLogCard(log, isDark);
         },
       );
@@ -508,14 +541,43 @@ class HoursScreen extends GetView<HoursController> {
                               : AppColors.foregroundLight,
                         ),
                         const SizedBox(width: 6),
-                        Text(
-                          controller.formatWorkLogTime(log.timestamp),
-                          style: AppTextStyles.labelMedium.copyWith(
-                            color: isDark
-                                ? AppColors.foregroundDark
-                                : AppColors.foregroundLight,
-                            fontWeight: FontWeight.w600,
-                          ),
+                        // Display login time and logout time
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (log.loginTime != null)
+                              Text(
+                                _formatTime(log.loginTime!),
+                                style: AppTextStyles.labelMedium.copyWith(
+                                  color: isDark
+                                      ? AppColors.foregroundDark
+                                      : AppColors.foregroundLight,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            if (log.logoutTime != null) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                'to ${_formatTime(log.logoutTime!)}',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: isDark
+                                      ? AppColors.mutedForegroundDark
+                                      : const Color(0xFF6B7280),
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                            if (log.loginTime == null && log.logoutTime == null)
+                              Text(
+                                'No time logged',
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: isDark
+                                      ? AppColors.mutedForegroundDark
+                                      : const Color(0xFF6B7280),
+                                  fontSize: 11,
+                                ),
+                              ),
+                          ],
                         ),
                       ],
                     ),
@@ -548,8 +610,46 @@ class HoursScreen extends GetView<HoursController> {
               ),
             ],
           ),
+
+          // Delete Button - ONLY for pending entries
+          // Approved entries must never be deletable
+          if (isPending) ...[
+            const SizedBox(height: 16),
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: isDark 
+                  ? AppColors.borderDark 
+                  : AppColors.borderLight,
+            ),
+            const SizedBox(height: 12),
+            // Delete Button
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => controller.deleteWorkLog(id: log.id),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Delete Entry'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: BorderSide(color: Colors.red.shade300),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
+  }
+
+  /// Format time for display (09:00 AM format)
+  String _formatTime(DateTime time) {
+    final hour = time.hour;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    
+    return '$displayHour:$minute $period';
   }
 }

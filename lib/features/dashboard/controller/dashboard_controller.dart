@@ -62,7 +62,7 @@ class DashboardController extends GetxController {
     userProfilePicture.value = storage.read('userProfilePicture') ?? '';
   }
 
-  /// Load start/end time status
+  /// Load start/end time status from local storage
   void _loadStartEndTimeStatus() {
     final today = DateTime.now();
     final todayStr = today.toIso8601String().split('T')[0];
@@ -74,18 +74,119 @@ class DashboardController extends GetxController {
       startTime.value = timeData['startTime'] ?? '';
       endTime.value = timeData['endTime'] ?? '';
       activeSessionId.value = timeData['sessionId'] ?? '';
+      final storedStatus = timeData['status'] ?? '';
       
       // Check if there's an active (pending) session for today
-      if (startTime.value.isNotEmpty && endTime.value.isEmpty) {
-        // Active session exists
-        print('📅 [DashboardController] Active session found for today: ${startTime.value}');
+      if (startTime.value.isNotEmpty && 
+          endTime.value.isEmpty && 
+          (storedStatus == 'pending' || storedStatus.isEmpty)) {
+        // Active pending session exists
+        print('📅 [DashboardController] Pending entry found for today: ${startTime.value}');
+        print('   Entry ID: ${activeSessionId.value}');
+        print('   Status: $storedStatus');
       }
     }
   }
 
-  /// Handle start time (login time) - Creates a new work session via API
+  /// Check if a pending work-hours entry exists for today
+  /// CRITICAL: Prevents duplicate entries by checking both state and storage
+  /// Returns true if:
+  /// - A pending entry exists in storage for today (status="pending" AND logout_time is empty/null)
+  /// - OR state indicates active session (startTime set, endTime empty, activeSessionId exists)
+  /// 
+  /// This ensures:
+  /// - START can only create ONE entry per day
+  /// - END can only update existing pending entry
+  /// - No duplicates are created even if state is cleared
+  bool get hasPendingEntryToday {
+    final today = DateTime.now();
+    final todayStr = today.toIso8601String().split('T')[0];
+    
+    // CRITICAL: Check storage first - this is the source of truth
+    // Even if state is cleared, storage will have the entry
+    final timeData = storage.read('workTime_${userEmail.value}_$todayStr');
+    if (timeData != null) {
+      final storedStartTime = timeData['startTime'] ?? '';
+      final storedEndTime = timeData['endTime'] ?? '';
+      final storedSessionId = timeData['sessionId'] ?? '';
+      final storedStatus = timeData['status'] ?? '';
+      final storedDate = timeData['date'] ?? '';
+      
+      // Check if this is for today
+      if (storedDate == todayStr) {
+        // A pending entry exists if:
+        // 1. Has startTime (entry was created)
+        // 2. Has sessionId (entry ID exists)
+        // 3. endTime is empty/null (not completed)
+        // 4. Status is "pending" or empty (defaults to pending)
+        final isPending = storedStartTime.isNotEmpty &&
+                         storedSessionId.isNotEmpty &&
+                         (storedEndTime.isEmpty || storedEndTime == null) &&
+                         (storedStatus == 'pending' || storedStatus.isEmpty);
+        
+        if (isPending) {
+          // Sync state from storage if state is empty
+          if (startTime.value.isEmpty || activeSessionId.value.isEmpty) {
+            startTime.value = storedStartTime;
+            activeSessionId.value = storedSessionId;
+            workDate.value = storedDate;
+            endTime.value = '';
+          }
+          return true;
+        }
+      }
+    }
+    
+    // Fallback: Check state if storage check didn't find anything
+    // This handles the case where entry was just created but not yet saved to storage
+    if (workDate.value == todayStr) {
+      final hasActiveSession = startTime.value.isNotEmpty && 
+                              endTime.value.isEmpty && 
+                              activeSessionId.value.isNotEmpty;
+      return hasActiveSession;
+    }
+    
+    return false;
+  }
+
+  /// Handle START button click
+  /// CRITICAL FIX: Prevents duplicate entries by enforcing strict checks
+  /// Rules:
+  /// - START must call CREATE API only once per day
+  /// - Check if a pending work-hours entry already exists for today (in storage OR state)
+  /// - If pending entry exists, DO NOTHING and prevent duplicate creation
+  /// - If no pending entry exists:
+  ///   - Call CREATE user hours API (ONLY ONCE per day)
+  ///   - Send title = "Work Day", date = today, login_time = current datetime
+  ///   - status must always be "pending"
+  /// - Save the returned entry ID in controller state and local storage
+  /// - Only ONE pending entry allowed per day
   Future<void> setStartTime() async {
-    if (isStartTimeLoading.value) return;
+    // Prevent multiple simultaneous calls
+    if (isStartTimeLoading.value) {
+      print('⚠️ [DashboardController] START already in progress, ignoring duplicate call');
+      return;
+    }
+
+    // CRITICAL: Check if a pending entry already exists for today
+    // This check uses storage as source of truth to prevent duplicates
+    // Even if state is cleared, storage will have the entry
+    if (hasPendingEntryToday) {
+      print('⚠️ [DashboardController] Pending entry already exists for today - PREVENTING DUPLICATE');
+      print('   Entry ID: ${activeSessionId.value}');
+      print('   Start Time: ${startTime.value}');
+      print('   ⛔ CREATE API will NOT be called - duplicate prevented');
+      
+      Get.snackbar(
+        'Warning',
+        'A pending work session already exists for today. Please end the current session first.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orange.shade100,
+        colorText: Colors.orange.shade900,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
 
     try {
       isStartTimeLoading.value = true;
@@ -95,34 +196,30 @@ class DashboardController extends GetxController {
       final currentDateTime = '${now.toIso8601String().split('.')[0]}'; // Format: "2025-12-17T09:00:00"
       final loginTime = currentDateTime.replaceAll('T', ' '); // Format: "2025-12-17 09:00:00"
 
-      // Check if there's already an active session for today
-      if (startTime.value.isNotEmpty && endTime.value.isEmpty) {
-        Get.snackbar(
-          'Warning',
-          'An active work session already exists for today. Please end the current session first.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.shade100,
-          colorText: Colors.orange.shade900,
-          duration: const Duration(seconds: 3),
-        );
-        return;
-      }
+      print('🟢 [DashboardController] Creating new work hours entry');
+      print('   Title: Work Day');
+      print('   Date: $todayStr');
+      print('   Login Time: $loginTime');
+      print('   Status: pending');
 
-      // Call API to create user hours with only login_time and status "pending"
+      // Call CREATE user hours API
+      // Send: title = "Work Day", date = today, login_time = current datetime
+      // status must always be "pending"
       final result = await _authService.createUserHours(
         title: 'Work Day',
         date: todayStr,
         loginTime: loginTime,
         logoutTime: null, // Not sent at this stage
         totalHours: null, // Not sent at this stage
-        status: 'pending', // Set status as "pending" by default
+        status: 'pending', // Status must always be "pending"
       );
 
       if (result['success'] == true) {
-        // Extract session ID from response if available
+        // Extract entry ID from response and save in controller state
         final sessionData = result['data'];
         if (sessionData != null && sessionData['id'] != null) {
           activeSessionId.value = sessionData['id'].toString();
+          print('✅ [DashboardController] Entry ID saved: ${activeSessionId.value}');
         }
 
         // Update local state
@@ -130,14 +227,16 @@ class DashboardController extends GetxController {
         workDate.value = todayStr;
         endTime.value = ''; // Clear end time for new session
 
-        // Save to local storage
+        // Save entry ID and session data to local storage
         await storage.write('workTime_${userEmail.value}_$todayStr', {
           'startTime': loginTime,
           'endTime': '',
           'date': todayStr,
           'sessionId': activeSessionId.value,
-          'status': 'pending',
+          'status': 'pending', // Status must always be "pending"
         });
+        
+        print('✅ [DashboardController] Session data saved to local storage');
 
         // Reflect backend response in UI
         final responseData = result['data'];
@@ -179,9 +278,56 @@ class DashboardController extends GetxController {
     }
   }
 
-  /// Handle end time (logout time) - Updates the active work session via API
+  /// Handle END button click
+  /// CRITICAL FIX: END must NEVER call CREATE API - only UPDATE
+  /// Rules:
+  /// - END button should only work if a pending work-hours entry exists
+  /// - On END button click:
+  ///   - Call UPDATE user hours API (NEVER CREATE)
+  ///   - Send the SAME pending entry ID and logout_time = current datetime
+  ///   - DO NOT call create API again - this prevents duplicates
+  ///   - Update the same row in backend
+  /// - After successful update:
+  ///   - Keep status as "pending"
+  ///   - Clear local "active session" state (allows new START next day)
+  ///   - Disable END button
+  /// - Only ONE pending entry allowed per day
   Future<void> setEndTime() async {
-    if (isEndTimeLoading.value) return;
+    // Prevent multiple simultaneous calls
+    if (isEndTimeLoading.value) {
+      print('⚠️ [DashboardController] END already in progress, ignoring duplicate call');
+      return;
+    }
+
+    // CRITICAL: END button should only work if a pending work-hours entry exists
+    // This prevents calling UPDATE on non-existent entries
+    if (!hasPendingEntryToday) {
+      print('⚠️ [DashboardController] No pending entry found - END cannot proceed');
+      Get.snackbar(
+        'Warning',
+        'No pending work session found for today. Please start a session first.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.orange.shade100,
+        colorText: Colors.orange.shade900,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
+
+    // CRITICAL: Must have active session ID to update
+    // Without ID, we cannot update - this prevents errors
+    if (activeSessionId.value.isEmpty) {
+      print('❌ [DashboardController] No active session ID found - cannot update');
+      Get.snackbar(
+        'Error',
+        'No active session ID found. Cannot update entry.',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
 
     try {
       isEndTimeLoading.value = true;
@@ -191,81 +337,66 @@ class DashboardController extends GetxController {
       final currentDateTime = '${now.toIso8601String().split('.')[0]}'; // Format: "2025-12-17T18:00:00"
       final logoutTime = currentDateTime.replaceAll('T', ' '); // Format: "2025-12-17 18:00:00"
 
-      // Check if there's an active session (start time exists but no end time)
-      if (startTime.value.isEmpty || endTime.value.isNotEmpty) {
-        Get.snackbar(
-          'Warning',
-          'No active work session found for today. Please start a session first.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.shade100,
-          colorText: Colors.orange.shade900,
-          duration: const Duration(seconds: 3),
-        );
-        return;
-      }
+      print('🔴 [DashboardController] Updating work hours entry');
+      print('   Entry ID: ${activeSessionId.value}');
+      print('   Logout Time: $logoutTime');
+      print('   Status: pending (remains pending)');
+      print('   ⚠️ CRITICAL: Calling UPDATE API (NOT CREATE) to prevent duplicates');
 
-      // Verify the session is for today
-      if (workDate.value != todayStr) {
-        Get.snackbar(
-          'Warning',
-          'Active session is for a different date. Please start a new session for today.',
-          snackPosition: SnackPosition.BOTTOM,
-          backgroundColor: Colors.orange.shade100,
-          colorText: Colors.orange.shade900,
-          duration: const Duration(seconds: 3),
-        );
-        return;
-      }
-
-      // Create complete work hours entry with all fields (title, date, login_time, logout_time)
-      // Status remains "pending" even when complete
-      final result = await createCompleteWorkHoursEntry(
-        title: 'Work Day',
-        date: todayStr,
-        loginTime: startTime.value,
-        logoutTime: logoutTime,
+      // CRITICAL: Call UPDATE user hours API (NEVER CREATE)
+      // Send the SAME pending entry ID and logout_time = current datetime
+      // DO NOT call create API again - this prevents duplicate rows
+      // Update the same row in backend
+      final result = await _authService.updateUserHours(
+        id: activeSessionId.value, // Same pending entry ID from START
+        logoutTime: logoutTime, // Current datetime
+        // Do NOT send title, date, loginTime, or status - only update logout_time
+        // This ensures we update the existing entry, not create a new one
       );
 
       if (result['success'] == true) {
-        // Extract session ID from response if available
-        final sessionData = result['data'];
-        if (sessionData != null && sessionData['id'] != null) {
-          activeSessionId.value = sessionData['id'].toString();
-        }
+        // Extract updated data from response
+        final responseData = result['data'];
+        final entryStatus = responseData != null ? (responseData['status'] ?? 'pending') : 'pending';
+        final entryId = responseData != null ? (responseData['id']?.toString() ?? '') : '';
+        
+        print('✅ [DashboardController] Entry updated successfully');
+        print('   Entry ID: $entryId');
+        print('   Status: $entryStatus (remains pending)');
+        print('   Logout Time: $logoutTime');
 
-        // Update local state
+        // Update local state with logout time
         endTime.value = logoutTime;
 
-        // Save to local storage
+        // Update local storage with logout time
+        // Keep status as "pending" (as per requirements)
         await storage.write('workTime_${userEmail.value}_$todayStr', {
           'startTime': startTime.value,
           'endTime': logoutTime,
           'date': todayStr,
           'sessionId': activeSessionId.value,
-          'status': 'pending', // Status remains "pending"
+          'status': 'pending', // Status remains "pending" after update
         });
 
-        // Reflect backend response in UI
-        final responseData = result['data'];
-        final entryStatus = responseData != null ? (responseData['status'] ?? 'pending') : 'pending';
-        final entryId = responseData != null ? (responseData['id']?.toString() ?? '') : '';
-        
-        if (entryId.isNotEmpty) {
-          activeSessionId.value = entryId;
-        }
+        // Clear local "active session" state
+        // This disables the END button and allows a new START
+        // Note: We keep the data in storage for history, but clear the "active" state
+        startTime.value = '';
+        endTime.value = '';
+        activeSessionId.value = '';
+        workDate.value = '';
+
+        print('✅ [DashboardController] Active session state cleared');
+        print('   END button will now be disabled');
 
         Get.snackbar(
           'Success',
-          result['message'] ?? 'Complete work hours entry created successfully',
+          result['message'] ?? 'Work hours completed successfully',
           snackPosition: SnackPosition.BOTTOM,
           backgroundColor: Colors.green.shade100,
           colorText: Colors.green.shade900,
           duration: const Duration(seconds: 3),
         );
-        
-        print('✅ [DashboardController] Backend response reflected in UI');
-        print('   Entry ID: $entryId');
-        print('   Status: $entryStatus');
       } else {
         Get.snackbar(
           'Error',
