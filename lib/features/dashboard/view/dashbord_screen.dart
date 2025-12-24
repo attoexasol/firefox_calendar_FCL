@@ -193,6 +193,29 @@ class DashboardScreen extends GetView<DashboardController> {
   // ============================================
   // METRICS GRID
   // ============================================
+  // 
+  // DASHBOARD RESPONSIBILITY: Summary View (Read-Only)
+  // ====================================================
+  // - Displays backend-calculated summary totals
+  // - NO approval/pending badges (summary only)
+  // - NO frontend calculations
+  // - NO status inference
+  // - Accepts backend summary as source of truth
+  // 
+  // Backend API Response Mapping:
+  // - hours_first_day → hoursToday → "Hours Today"
+  // - hours_this_week → hoursThisWeek → "Hours This Week"
+  // - event_this_week → eventsThisWeek → "Events This Week"
+  // - leave_this_week → leaveThisWeek → "Leave This Week" (default "0", not in API)
+  // 
+  // IMPORTANT: Dashboard totals may differ from Hours screen totals
+  // - Dashboard = Backend summary calculation (may include auto-approval)
+  // - Hours screen = Detailed per-entry breakdown (shows all entries with status)
+  // - This difference is EXPECTED and ACCEPTABLE
+  // - Do NOT try to match totals - they serve different purposes
+  // 
+  // Dashboard is READ-ONLY - displays API values only
+  // No calculations on frontend - defaults to 0 if missing
   Widget _buildMetricsGrid(bool isDark) {
     return GridView.count(
       crossAxisCount: 2,
@@ -202,24 +225,30 @@ class DashboardScreen extends GetView<DashboardController> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
+        // Card 1: Hours Today (maps from backend: hours_first_day)
+        // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
             icon: Icons.access_time,
             iconColor: const Color(0xFF155DFC),
-            value: controller.hoursToday.value,
+            value: '${controller.hoursToday.value}h',
             subtitle: "Hours Today",
             isDark: isDark,
           ),
         ),
+        // Card 2: Hours This Week (maps from backend: hours_this_week)
+        // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
             icon: Icons.access_time_rounded,
             iconColor: const Color(0xFF00A63E),
-            value: controller.hoursThisWeek.value,
+            value: '${controller.hoursThisWeek.value}h',
             subtitle: "Hours This Week",
             isDark: isDark,
           ),
         ),
+        // Card 3: Events This Week (maps from backend: event_this_week)
+        // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
             icon: Icons.calendar_today,
@@ -229,11 +258,15 @@ class DashboardScreen extends GetView<DashboardController> {
             isDark: isDark,
           ),
         ),
+        // Card 4: Leave This Week
+        // Note: Not in API response - always shows default "0"
+        // Card remains visible for UI consistency
+        // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
             icon: Icons.umbrella,
             iconColor: const Color(0xFFE7000B),
-            value: controller.leaveThisWeek.value,
+            value: controller.leaveThisWeek.value, // Always "0" (not in API response)
             subtitle: "Leave This Week",
             isDark: isDark,
           ),
@@ -242,6 +275,18 @@ class DashboardScreen extends GetView<DashboardController> {
     );
   }
 
+  /// Build individual metric card
+  /// 
+  /// Dashboard is READ-ONLY - displays API values only
+  /// No calculations on frontend - values come directly from backend
+  /// 
+  /// IMPORTANT: Dashboard shows NO approval/pending badges
+  /// - Summary view only (no status indicators)
+  /// - Status badges are shown ONLY on Hours screen (detailed view)
+  /// 
+  /// Parameters:
+  /// - value: Display value (formatted from backend API)
+  /// - subtitle: UI label (e.g., "Hours Today", "Hours This Week", "Events This Week")
   Widget _buildMetricCard({
     required IconData icon,
     required Color iconColor,
@@ -264,7 +309,9 @@ class DashboardScreen extends GetView<DashboardController> {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
+          // Icon
           Icon(icon, size: 22, color: iconColor),
+          // Value (read-only from API)
           Text(
             value,
             style: TextStyle(
@@ -275,6 +322,7 @@ class DashboardScreen extends GetView<DashboardController> {
               fontWeight: FontWeight.w600,
             ),
           ),
+          // Subtitle (UI label)
           Text(
             subtitle,
             style: TextStyle(

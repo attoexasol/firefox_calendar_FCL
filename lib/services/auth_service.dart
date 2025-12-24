@@ -30,6 +30,7 @@ class AuthService {
   static const String updateUserHoursEndpoint = '$baseUrl/update/user_hours';
   static const String deleteUserHoursEndpoint = '$baseUrl/delete/user_hours';
   static const String getUserHoursEndpoint = '$baseUrl/all/user_hours'; // Get user work hours entries
+  static const String dashboardSummaryEndpoint = '$baseUrl/dashboard/summary'; // Get dashboard summary (approved hours only)
   
   // =========================================================
   // DEPENDENCIES
@@ -1031,13 +1032,31 @@ class AuthService {
   /// Parameters: title, date, loginTime, logoutTime (optional), totalHours (optional), status (optional)
   /// Returns: Map with success status and message
   /// Note: Status defaults to "pending" and remains "pending" even when complete
+  /// Create user work hours entry
+  /// 
+  /// CRITICAL RULES:
+  /// - Frontend MUST NEVER set "approved" status
+  /// - Status must ALWAYS be "pending" when creating from frontend
+  /// - Backend will auto-approve entries when:
+  ///   - login_time IS NOT NULL
+  ///   - logout_time IS NOT NULL
+  ///   - status == "pending"
+  /// - Auto-approval happens in dashboard summary API or scheduled job
+  /// 
+  /// Parameters:
+  /// - title: Work entry title (e.g., "Work Day")
+  /// - date: Work date (YYYY-MM-DD)
+  /// - loginTime: Start time (YYYY-MM-DD HH:MM:SS)
+  /// - logoutTime: End time (optional, can be set later via UPDATE)
+  /// - totalHours: Total hours (optional, backend calculates)
+  /// - status: IGNORED - always set to "pending" (backend handles approval)
   Future<Map<String, dynamic>> createUserHours({
     required String title,
     required String date,
     required String loginTime,
     String? logoutTime,
     String? totalHours,
-    String? status,
+    String? status, // IGNORED - always "pending" from frontend
   }) async {
     print('═══════════════════════════════════════════════════════════');
     print('🔵 [API CALL] Create User Hours');
@@ -1072,8 +1091,15 @@ class AuthService {
         requestData['total_hours'] = totalHours;
       }
       
-      // Status should remain "pending" after creation (even when complete)
-      requestData['status'] = status ?? 'pending';
+      // CRITICAL: Frontend MUST NEVER set "approved" status
+      // Status must ALWAYS be "pending" when creating from frontend
+      // Backend will auto-approve entries when:
+      // - login_time IS NOT NULL
+      // - logout_time IS NOT NULL
+      // - status == "pending"
+      // Auto-approval happens in dashboard summary API or scheduled job
+      // The 'status' parameter is IGNORED - always set to "pending"
+      requestData['status'] = 'pending'; // ALWAYS pending from frontend - backend handles approval
 
       // Log request details
       print('📍 URL: $createUserHoursEndpoint');
@@ -1131,13 +1157,28 @@ class AuthService {
   /// Update user hours entry - Edits an existing work hours entry
   /// Parameters: id (required), title (optional), date (optional), loginTime (optional), logoutTime (optional), status (optional)
   /// Returns: Map with success status and message
+  /// Update user work hours entry
+  /// 
+  /// CRITICAL RULES:
+  /// - Frontend MUST NEVER set "approved" status
+  /// - Status parameter is IGNORED - backend handles approval automatically
+  /// - When logout_time is set, backend will auto-approve if:
+  ///   - login_time IS NOT NULL
+  ///   - logout_time IS NOT NULL
+  ///   - status == "pending"
+  /// - Auto-approval happens in dashboard summary API or scheduled job
+  /// 
+  /// Parameters:
+  /// - id: Entry ID to update
+  /// - logoutTime: End time (YYYY-MM-DD HH:MM:SS) - typically set by END button
+  /// - status: IGNORED - backend handles approval automatically
   Future<Map<String, dynamic>> updateUserHours({
     required String id,
     String? title,
     String? date,
     String? loginTime,
     String? logoutTime,
-    String? status,
+    String? status, // IGNORED - backend handles approval automatically
   }) async {
     print('═══════════════════════════════════════════════════════════');
     print('🔵 [API CALL] Update User Hours');
@@ -1173,9 +1214,10 @@ class AuthService {
       if (logoutTime != null && logoutTime.isNotEmpty) {
         requestData['logout_time'] = logoutTime;
       }
-      if (status != null && status.isNotEmpty) {
-        requestData['status'] = status;
-      }
+      // CRITICAL: Frontend MUST NEVER set "approved" status
+      // Status is NOT sent in update - backend handles approval automatically
+      // When logout_time is set, backend will auto-approve eligible entries
+      // Do NOT include status in update request - backend manages this
 
       // Log request details
       print('📍 URL: $updateUserHoursEndpoint');
@@ -1393,6 +1435,120 @@ class AuthService {
         'success': false,
         'message': 'Network error. Please check your connection.',
         'data': [],
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // GET DASHBOARD SUMMARY API
+  // =========================================================
+
+  /// Get dashboard summary
+  /// 
+  /// Endpoint: POST /api/dashboard/summary
+  /// 
+  /// Backend Response Format (FIXED - DO NOT CHANGE):
+  /// {
+  ///   "status": true,
+  ///   "data": {
+  ///     "hours_first_day": number,    // Maps to "Hours Today"
+  ///     "hours_this_week": number,    // Maps to "Hours This Week"
+  ///     "event_this_week": number     // Maps to "Events This Week"
+  ///   }
+  /// }
+  /// 
+  /// IMPORTANT RULES:
+  /// - Frontend must ONLY read and display data (read-only)
+  /// - No calculations on frontend - trust backend values
+  /// - Default to 0 if any field is missing
+  /// - Parse response safely with null checks
+  /// - Map backend fields correctly to UI labels
+  /// 
+  /// NOTE: Backend requires POST method (not GET)
+  Future<Map<String, dynamic>> getDashboardSummary() async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Get Dashboard Summary');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+      };
+    }
+
+    try {
+      // Build request body (POST method required by backend)
+      final requestBody = <String, dynamic>{
+        'api_token': apiToken,
+      };
+
+      final uri = Uri.parse(dashboardSummaryEndpoint);
+
+      // Log request details
+      print('📍 URL: $uri');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestBody)}');
+
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestBody),
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        print('✅ [AuthService] Get Dashboard Summary response status: ${response.statusCode}');
+        
+        // Extract summary data with null safety
+        final summaryData = responseData['data'] as Map<String, dynamic>?;
+        
+        if (summaryData != null) {
+          print('📊 [AuthService] Dashboard Summary Data (Backend Format):');
+          print('   hours_first_day: ${summaryData['hours_first_day']} → "Hours Today"');
+          print('   hours_this_week: ${summaryData['hours_this_week']} → "Hours This Week"');
+          print('   event_this_week: ${summaryData['event_this_week']} → "Events This Week"');
+        }
+        
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'Dashboard summary fetched successfully',
+          'data': summaryData ?? {},
+        };
+      } else {
+        print('❌ [AuthService] Get Dashboard Summary failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to fetch dashboard summary',
+          'data': {},
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Get Dashboard Summary error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'data': {},
         'error': e.toString(),
       };
     }

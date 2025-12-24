@@ -3,7 +3,23 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
-/// Hours Controller - Updated to match React Hours component
+/// Hours Controller - Detailed per-entry breakdown
+/// 
+/// RESPONSIBILITY: Detailed View (with Status Badges)
+/// ===================================================
+/// - Fetches individual work hour entries (GET /api/all/user_hours)
+/// - Displays entries with approved/pending status badges
+/// - Shows delete buttons for pending entries
+/// - Per-entry status display
+/// - Detailed per-day breakdown
+/// 
+/// DIFFERENCE FROM DASHBOARD:
+/// - Dashboard = Summary totals (backend-calculated via POST /api/dashboard/summary)
+/// - Hours Controller = Detailed entries (via GET /api/all/user_hours)
+/// - Dashboard totals may differ from Hours screen totals (this is expected)
+/// - Dashboard shows aggregated summary, Hours shows individual entries
+/// - Dashboard = read-only summary, Hours = detailed with status badges
+/// 
 /// Manages hours tracking, work logs, and timesheet data
 class HoursController extends GetxController {
   // Storage and services
@@ -782,12 +798,15 @@ class WorkLog {
   }
 
   /// Factory constructor for API response format
-  /// API returns: date (YYYY-MM-DD), login_time (HH:MM), logout_time (HH:MM), total_hours (number), status
+  /// API returns: work_date (YYYY-MM-DD), login_time (HH:MM), logout_time (HH:MM), total_hours (number), status
+  /// Note: API uses 'work_date' field, but also supports 'date' for backward compatibility
   factory WorkLog.fromApiJson(Map<String, dynamic> json) {
-    // Parse date (YYYY-MM-DD format)
+    // Parse date - API returns 'work_date' but also check 'date' for compatibility
     DateTime parsedDate;
-    if (json['date'] != null) {
-      final dateStr = json['date'].toString();
+    final dateValue = json['work_date'] ?? json['date']; // API uses 'work_date', fallback to 'date'
+    
+    if (dateValue != null) {
+      final dateStr = dateValue.toString();
       // Handle both ISO format and date-only format
       if (dateStr.contains('T')) {
         parsedDate = DateTime.parse(dateStr);
@@ -871,13 +890,17 @@ class WorkLog {
       }
     }
 
+    // Status comes directly from API response - do NOT modify it
+    // UI layer will normalize for display/comparison purposes
+    final statusFromApi = json['status']?.toString() ?? 'pending';
+    
     return WorkLog(
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? 'Work Day',
       workType: json['workType'] ?? 'Development',
       date: parsedDate,
       hours: parsedHours,
-      status: json['status'] ?? 'pending',
+      status: statusFromApi, // Status comes directly from API - no modification
       timestamp: parsedTimestamp,
       loginTime: parsedLoginTime,
       logoutTime: parsedLogoutTime,

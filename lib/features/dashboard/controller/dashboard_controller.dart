@@ -5,6 +5,22 @@ import 'package:get_storage/get_storage.dart';
 
 
 /// Dashboard Controller
+/// 
+/// RESPONSIBILITY: Summary View (Read-Only)
+/// =========================================
+/// - Fetches backend summary (POST /api/dashboard/summary)
+/// - Displays aggregated totals from backend
+/// - NO approval/pending badges (summary only)
+/// - NO frontend calculations
+/// - NO status inference
+/// - Accepts backend summary as source of truth
+/// 
+/// DIFFERENCE FROM HOURS SCREEN:
+/// - Dashboard = Summary totals (backend-calculated, read-only)
+/// - Hours Screen = Detailed entries (with status badges, per-entry view)
+/// - Dashboard totals may differ from Hours screen totals (this is expected)
+/// - Dashboard shows aggregated summary, Hours shows individual entries
+/// 
 /// Manages dashboard state, user data, metrics, and events
 class DashboardController extends GetxController {
   // Storage and services
@@ -28,11 +44,24 @@ class DashboardController extends GetxController {
   final RxString workDate = ''.obs; // Format: "2025-12-17"
   final RxString activeSessionId = ''.obs; // Store the ID of the active session
 
-  // Metrics (observable)
-  final RxString hoursToday = '7.5'.obs;
-  final RxString hoursThisWeek = '37.5'.obs;
-  final RxString eventsThisWeek = '8'.obs;
-  final RxString leaveThisWeek = '2'.obs;
+  // Metrics (observable) - Read-only values from API
+  // Backend API Response Format:
+  // {
+  //   "status": true,
+  //   "data": {
+  //     "hours_first_day": number,    → hoursToday (displayed as "Hours Today")
+  //     "hours_this_week": number,     → hoursThisWeek (displayed as "Hours This Week")
+  //     "event_this_week": number      → eventsThisWeek (displayed as "Events This Week")
+  //   }
+  // }
+  // Note: leaveThisWeek is not in API response, but kept visible in UI with default value "0"
+  final RxString hoursToday = '0'.obs;        // Maps from backend: hours_first_day
+  final RxString hoursThisWeek = '0'.obs;     // Maps from backend: hours_this_week
+  final RxString eventsThisWeek = '0'.obs;    // Maps from backend: event_this_week
+  final RxString leaveThisWeek = '0'.obs;     // Not in API response - kept visible with default "0"
+  
+  // Loading state for dashboard summary
+  final RxBool isLoadingSummary = false.obs;
 
   // Next event
   final Rx<Meeting?> nextMeeting = Rx<Meeting?>(null);
@@ -52,6 +81,8 @@ class DashboardController extends GetxController {
     _loadStartEndTimeStatus();
     _loadMockMeetings();
     _startCountdownTimer();
+    // Fetch dashboard summary from API (approved hours only)
+    fetchDashboardSummary();
   }
 
   /// Load user data from storage
@@ -204,14 +235,15 @@ class DashboardController extends GetxController {
 
       // Call CREATE user hours API
       // Send: title = "Work Day", date = today, login_time = current datetime
-      // status must always be "pending"
+      // CRITICAL: Status is ALWAYS "pending" - frontend NEVER sets "approved"
+      // Backend will auto-approve when both login_time and logout_time are set
       final result = await _authService.createUserHours(
         title: 'Work Day',
         date: todayStr,
         loginTime: loginTime,
-        logoutTime: null, // Not sent at this stage
-        totalHours: null, // Not sent at this stage
-        status: 'pending', // Status must always be "pending"
+        logoutTime: null, // Not sent at this stage (set later via UPDATE)
+        totalHours: null, // Backend calculates this
+        status: 'pending', // ALWAYS pending - backend handles approval
       );
 
       if (result['success'] == true) {
@@ -253,6 +285,10 @@ class DashboardController extends GetxController {
         
         print('✅ [DashboardController] Backend response reflected in UI');
         print('   Entry Status: $entryStatus');
+        
+        // Refresh dashboard summary after creating work hours entry
+        // This ensures summary reflects latest approved hours totals
+        await refreshDashboardSummary();
       } else {
         Get.snackbar(
           'Error',
@@ -347,10 +383,17 @@ class DashboardController extends GetxController {
       // Send the SAME pending entry ID and logout_time = current datetime
       // DO NOT call create API again - this prevents duplicate rows
       // Update the same row in backend
+      // 
+      // AUTO-APPROVAL NOTE:
+      // - After logout_time is set, backend will auto-approve this entry
+      // - Auto-approval happens in dashboard summary API or scheduled job
+      // - Frontend NEVER sets "approved" status - backend handles this
       final result = await _authService.updateUserHours(
         id: activeSessionId.value, // Same pending entry ID from START
         logoutTime: logoutTime, // Current datetime
-        // Do NOT send title, date, loginTime, or status - only update logout_time
+        // Do NOT send title, date, loginTime, or status
+        // - title/date/loginTime: unchanged
+        // - status: backend handles approval automatically
         // This ensures we update the existing entry, not create a new one
       );
 
@@ -388,6 +431,10 @@ class DashboardController extends GetxController {
 
         print('✅ [DashboardController] Active session state cleared');
         print('   END button will now be disabled');
+
+        // Refresh dashboard summary after updating work hours entry
+        // This ensures summary reflects latest approved hours totals
+        await refreshDashboardSummary();
 
         Get.snackbar(
           'Success',
@@ -660,6 +707,163 @@ class DashboardController extends GetxController {
     }
 
     return result;
+  }
+
+  // =========================================================
+  // DASHBOARD SUMMARY API INTEGRATION
+  // =========================================================
+
+  /// Fetch dashboard summary from API
+  /// 
+  /// Backend API: POST /api/dashboard/summary
+  /// 
+  /// Backend Response Format (FIXED - DO NOT CHANGE):
+  /// {
+  ///   "status": true,
+  ///   "data": {
+  ///     "hours_first_day": number,    // Maps to "Hours Today"
+  ///     "hours_this_week": number,    // Maps to "Hours This Week"
+  ///     "event_this_week": number     // Maps to "Events This Week"
+  ///   }
+  /// }
+  /// 
+  /// =========================================================
+  /// CRITICAL: SEPARATION OF RESPONSIBILITIES
+  /// =========================================================
+  /// 
+  /// DASHBOARD SCREEN (This Controller):
+  /// - Purpose: Summary view only (read-only)
+  /// - Data Source: Backend summary API (POST /api/dashboard/summary)
+  /// - Display: Aggregated totals from backend
+  /// - NO approval/pending badges (summary only)
+  /// - NO frontend calculations
+  /// - NO status inference
+  /// - Accepts backend summary as source of truth
+  /// 
+  /// HOURS SCREEN (HoursController):
+  /// - Purpose: Detailed per-day breakdown
+  /// - Data Source: Backend detailed API (GET /api/all/user_hours)
+  /// - Display: Individual entries with status badges
+  /// - Shows approved/pending badges (detailed view)
+  /// - Shows delete buttons for pending entries
+  /// - Per-entry status display
+  /// 
+  /// WHY TOTALS MAY DIFFER:
+  /// - Dashboard shows backend-calculated summary (may include auto-approval logic)
+  /// - Hours screen shows individual entries (may include pending entries)
+  /// - Backend summary calculation may differ from frontend sum of entries
+  /// - This is EXPECTED and ACCEPTABLE - backend summary is source of truth
+  /// - Do NOT try to match totals - they serve different purposes
+  /// 
+  /// IMPORTANT RULES:
+  /// - Frontend must ONLY read and display data (read-only)
+  /// - NO calculations on frontend - trust backend values
+  /// - NO approval logic inference on frontend
+  /// - Default to 0 if any field is missing
+  /// - Parse response safely with null checks
+  /// - Map backend fields correctly to UI labels:
+  ///   - hours_first_day → hoursToday → "Hours Today"
+  ///   - hours_this_week → hoursThisWeek → "Hours This Week"
+  ///   - event_this_week → eventsThisWeek → "Events This Week"
+  Future<void> fetchDashboardSummary() async {
+    if (isLoadingSummary.value) return;
+
+    try {
+      isLoadingSummary.value = true;
+      print('🔄 [DashboardController] Fetching dashboard summary from API');
+      print('   📋 Backend Response Format:');
+      print('      - hours_first_day → "Hours Today"');
+      print('      - hours_this_week → "Hours This Week"');
+      print('      - event_this_week → "Events This Week"');
+      print('   ⚠️ IMPORTANT: Read-only display - no calculations on frontend');
+
+      // Call API to get dashboard summary
+      final result = await _authService.getDashboardSummary();
+
+      if (result['success'] == true) {
+        final summaryData = result['data'] as Map<String, dynamic>?;
+        
+        if (summaryData != null) {
+          // CRITICAL: Parse response safely with null checks
+          // CRITICAL: Do NOT recalculate - use backend values directly
+          // CRITICAL: Default to 0 if any field is missing
+          // CRITICAL: No approval logic inference - backend summary is source of truth
+          
+          // Map: hours_first_day → hoursToday → "Hours Today"
+          // Backend calculates this - we only display it
+          final hoursFirstDayValue = summaryData['hours_first_day'];
+          hoursToday.value = _formatHours(hoursFirstDayValue);
+          
+          // Map: hours_this_week → hoursThisWeek → "Hours This Week"
+          // Backend calculates this - we only display it
+          final hoursThisWeekValue = summaryData['hours_this_week'];
+          hoursThisWeek.value = _formatHours(hoursThisWeekValue);
+          
+          // Map: event_this_week → eventsThisWeek → "Events This Week"
+          // Backend calculates this - we only display it
+          final eventThisWeekValue = summaryData['event_this_week'];
+          eventsThisWeek.value = (eventThisWeekValue ?? 0).toString();
+          
+          // Leave card always shows default "0" (not in API response)
+          // This is intentional - card remains visible even without API data
+          leaveThisWeek.value = '0';
+
+          print('✅ [DashboardController] Dashboard summary updated (READ-ONLY):');
+          print('   hours_first_day: ${hoursFirstDayValue} → Hours Today: ${hoursToday.value}');
+          print('   hours_this_week: ${hoursThisWeekValue} → Hours This Week: ${hoursThisWeek.value}');
+          print('   event_this_week: ${eventThisWeekValue} → Events This Week: ${eventsThisWeek.value}');
+          print('   ⚠️ NOTE: Dashboard totals may differ from Hours screen - this is expected');
+          print('   ⚠️ Dashboard = summary (backend-calculated), Hours = detailed (per-entry)');
+        } else {
+          print('⚠️ [DashboardController] No summary data in API response - using defaults (0)');
+          // Keep default values (already set to '0')
+        }
+      } else {
+        print('❌ [DashboardController] Failed to fetch dashboard summary: ${result['message']}');
+        print('   Using default values (0)');
+        // Keep default values on error (already set to '0')
+      }
+    } catch (e) {
+      print('❌ [DashboardController] Error fetching dashboard summary: $e');
+      // Keep default values on error
+    } finally {
+      isLoadingSummary.value = false;
+    }
+  }
+
+  /// Format hours value for display
+  /// Handles both double and int types
+  /// Shows whole numbers without decimals (e.g., 5 instead of 5.0)
+  /// Shows one decimal place only if needed (e.g., 7.5)
+  String _formatHours(dynamic value) {
+    if (value == null) return '0';
+    
+    double? hoursValue;
+    
+    if (value is double) {
+      hoursValue = value;
+    } else if (value is int) {
+      hoursValue = value.toDouble();
+    } else if (value is String) {
+      hoursValue = double.tryParse(value);
+    }
+    
+    if (hoursValue == null) return '0';
+    
+    // If it's a whole number, display without decimals (e.g., 5 instead of 5.0)
+    if (hoursValue == hoursValue.roundToDouble()) {
+      return hoursValue.toInt().toString();
+    }
+    
+    // Otherwise, show one decimal place (e.g., 7.5)
+    return hoursValue.toStringAsFixed(1);
+  }
+
+  /// Refresh dashboard summary
+  /// Call this method after creating/updating/deleting work hours
+  /// to refresh the summary with latest approved hours totals
+  Future<void> refreshDashboardSummary() async {
+    await fetchDashboardSummary();
   }
 }
 

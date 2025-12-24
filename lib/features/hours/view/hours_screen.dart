@@ -9,7 +9,22 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 
-/// Hours Screen - Updated to match React Hours component and screenshot
+/// Hours Screen - Detailed per-entry breakdown
+/// 
+/// RESPONSIBILITY: Detailed View (with Status Badges)
+/// ===================================================
+/// - Shows individual work hour entries
+/// - Displays approved/pending status badges
+/// - Shows delete buttons for pending entries
+/// - Per-entry status display
+/// - Detailed per-day breakdown
+/// 
+/// DIFFERENCE FROM DASHBOARD:
+/// - Dashboard = Summary totals (backend-calculated, read-only)
+/// - Hours Screen = Detailed entries (with status badges, per-entry view)
+/// - Dashboard totals may differ from Hours screen totals (this is expected)
+/// - Dashboard shows aggregated summary, Hours shows individual entries
+/// 
 /// Features: Day/Week/Month tabs, Summary card, Work logs list
 class HoursScreen extends GetView<HoursController> {
   const HoursScreen({super.key});
@@ -363,20 +378,35 @@ class HoursScreen extends GetView<HoursController> {
 
   /// Build individual Work Hour Entry Card
   /// Shows: title, date, logged time, total hours, status badge
-  /// Approved entries are visually distinct with green border and background tint
+  /// Rules:
+  /// - status == "pending": Show orange Pending badge, Show Delete button
+  /// - status == "approved": Show green Approved badge, Hide Delete button, Entry is read-only
   Widget _buildWorkLogCard(WorkLog log, bool isDark) {
-    final statusColor = controller.getStatusColor(log.status);
-    final isApproved = log.status.toLowerCase() == 'approved';
-    final isPending = log.status.toLowerCase() == 'pending';
+    // Normalize status (trim whitespace, lowercase) - status comes directly from API
+    final normalizedStatus = (log.status ?? '').trim().toLowerCase();
+    final isApproved = normalizedStatus == 'approved';
+    final isPending = normalizedStatus == 'pending';
+    
+    // Explicit badge colors based on status
+    // Pending: Orange badge
+    // Approved: Green badge
+    final badgeColor = isPending 
+        ? Colors.orange 
+        : isApproved 
+            ? Colors.green 
+            : Colors.grey; // Fallback for other statuses
     
     // Format status text for badge
     final statusText = isPending 
         ? 'Pending' 
         : isApproved 
             ? 'Approved' 
-            : log.status[0].toUpperCase() + log.status.substring(1).toLowerCase();
+            : (log.status.isNotEmpty 
+                ? log.status[0].toUpperCase() + log.status.substring(1).toLowerCase()
+                : 'Unknown');
     
-    // Make approved entries visually distinct
+    // Make approved entries visually distinct with green styling
+    // Pending entries use default styling
     final cardBackgroundColor = isApproved
         ? (isDark 
             ? Colors.green.withValues(alpha: 0.1)
@@ -384,7 +414,7 @@ class HoursScreen extends GetView<HoursController> {
         : (isDark ? AppColors.cardDark : AppColors.cardLight);
     
     final borderColor = isApproved
-        ? statusColor.withValues(alpha: 0.5)
+        ? badgeColor.withValues(alpha: 0.5)
         : (isDark ? AppColors.borderDark : AppColors.borderLight);
     
     final borderWidth = isApproved ? 2.0 : 1.0;
@@ -401,7 +431,7 @@ class HoursScreen extends GetView<HoursController> {
         boxShadow: [
           BoxShadow(
             color: isApproved
-                ? statusColor.withValues(alpha: 0.15)
+                ? badgeColor.withValues(alpha: 0.15)
                 : (isDark 
                     ? Colors.black.withValues(alpha: 0.2)
                     : Colors.grey.withValues(alpha: 0.1)),
@@ -458,14 +488,15 @@ class HoursScreen extends GetView<HoursController> {
                 ),
               ),
               
-              // Status Badge (Pending or Approved)
+              // Status Badge
+              // Rules: Pending = Orange badge, Approved = Green badge
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: statusColor.withValues(alpha: isApproved ? 0.2 : 0.15),
+                  color: badgeColor.withValues(alpha: isApproved ? 0.2 : 0.15),
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: statusColor.withValues(alpha: isApproved ? 0.6 : 0.4),
+                    color: badgeColor.withValues(alpha: isApproved ? 0.6 : 0.4),
                     width: isApproved ? 2.0 : 1.5,
                   ),
                 ),
@@ -476,19 +507,19 @@ class HoursScreen extends GetView<HoursController> {
                       Icon(
                         Icons.check_circle,
                         size: 14,
-                        color: statusColor,
+                        color: badgeColor,
                       )
                     else if (isPending)
                       Icon(
                         Icons.pending,
                         size: 14,
-                        color: statusColor,
+                        color: badgeColor,
                       ),
                     if (isApproved || isPending) const SizedBox(width: 4),
                     Text(
                       statusText,
                       style: AppTextStyles.labelSmall.copyWith(
-                        color: statusColor,
+                        color: badgeColor,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.5,
                       ),
@@ -612,7 +643,10 @@ class HoursScreen extends GetView<HoursController> {
           ),
 
           // Delete Button - ONLY for pending entries
-          // Approved entries must never be deletable
+          // Rules: 
+          // - status == "pending": Show Delete button
+          // - status == "approved": Hide Delete button (read-only)
+          // Status comes directly from API response
           if (isPending) ...[
             const SizedBox(height: 16),
             Divider(
