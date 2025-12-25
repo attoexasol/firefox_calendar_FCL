@@ -26,17 +26,30 @@ class CalendarScreen extends GetView<CalendarController> {
           : AppColors.backgroundLight,
       body: Stack(
         children: [
-          // Main calendar content
+          // Main calendar content with proper scroll behavior
           SafeArea(
             child: Column(
               children: [
-                // Top Bar
-                const TopBar(title: 'Calendar'),
-
-                // Filtering Section
-                _buildFilteringSection(context, isDark),
-
-                // Calendar View
+                // Scrollable top section: TopBar + Filters + Date Navigation (scrolls away/hidden)
+                SingleChildScrollView(
+                  physics: const ClampingScrollPhysics(),
+                  child: Column(
+                    children: [
+                      // 1. Top Bar - Scrolls away naturally
+                      const TopBar(title: 'Calendar'),
+                      // 2. Show Calendar By (Day/Week/Month tabs) - Scrolls away naturally
+                      _buildShowCalendarBy(context, isDark),
+                      // 3. Show Schedule For (Everyone/Myself tabs) - Scrolls away naturally
+                      _buildShowScheduleFor(context, isDark),
+                      // 4. Date Range Navigation - Scrolls away naturally
+                      _buildDateNavigation(context, isDark),
+                    ],
+                  ),
+                ),
+                // Calendar View - Fixed headers + scrollable content
+                // When scrolling: Date Header + Time/User Profile row remain FIXED
+                // Time slots and events scroll
+                // When not scrolling: Screen remains in normal default state
                 Expanded(
                   child: Obx(() {
                     // Show loading state
@@ -58,7 +71,7 @@ class CalendarScreen extends GetView<CalendarController> {
                       return _buildEmptyState(isDark);
                     }
 
-                    // Show calendar views
+                    // Show calendar views with fixed Date Header + Time/User Profile row
                     if (controller.viewType.value == 'week') {
                       return _buildWeekView(context, isDark);
                     } else if (controller.viewType.value == 'day') {
@@ -92,8 +105,138 @@ class CalendarScreen extends GetView<CalendarController> {
     );
   }
 
-  /// Build filtering section
-  Widget _buildFilteringSection(BuildContext context, bool isDark) {
+  /// Build "Show calendar by" section (Day/Week/Month tabs)
+  /// Scrolls away naturally when user scrolls
+  Widget _buildShowCalendarBy(BuildContext context, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            width: 1,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Show calendar by',
+            style: AppTextStyles.labelSmall.copyWith(
+              color: isDark
+                  ? AppColors.mutedForegroundDark
+                  : AppColors.mutedForegroundLight,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Obx(
+            () => Row(
+              children: [
+                Expanded(
+                  child: _buildTabButton(
+                    context,
+                    'Day',
+                    'day',
+                    controller.viewType.value == 'day',
+                    isDark,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTabButton(
+                    context,
+                    'Week',
+                    'week',
+                    controller.viewType.value == 'week',
+                    isDark,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTabButton(
+                    context,
+                    'Month',
+                    'month',
+                    controller.viewType.value == 'month',
+                    isDark,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build "Show schedule for" section (Everyone/Myself tabs)
+  /// Scrolls away naturally when user scrolls
+  Widget _buildShowScheduleFor(BuildContext context, bool isDark) {
+    return Container(
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            width: 1,
+          ),
+        ),
+      ),
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Show schedule for',
+            style: AppTextStyles.labelSmall.copyWith(
+              color: isDark
+                  ? AppColors.mutedForegroundDark
+                  : AppColors.mutedForegroundLight,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Obx(
+            () => Row(
+              children: [
+                Expanded(
+                  child: _buildTabButton(
+                    context,
+                    'Everyone',
+                    'everyone',
+                    controller.scopeType.value == 'everyone',
+                    isDark,
+                    isScope: true,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTabButton(
+                    context,
+                    'Myself',
+                    'myself',
+                    controller.scopeType.value == 'myself',
+                    isDark,
+                    isScope: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Build date navigation section (scrolls away)
+  Widget _buildDateNavigation(BuildContext context, bool isDark) {
     return Container(
       decoration: BoxDecoration(
         border: Border(
@@ -104,208 +247,103 @@ class CalendarScreen extends GetView<CalendarController> {
         ),
       ),
       padding: const EdgeInsets.all(12),
-      child: Column(
+      child: Row(
         children: [
-          // View Type Tabs
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Show calendar by',
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: isDark
-                      ? AppColors.mutedForegroundDark
-                      : AppColors.mutedForegroundLight,
-                  fontWeight: FontWeight.w600,
-                ),
+          // Previous Button
+          IconButton(
+            onPressed: controller.navigatePrevious,
+            icon: const Icon(Icons.chevron_left, size: 20),
+            style: IconButton.styleFrom(
+              backgroundColor: isDark
+                  ? AppColors.cardDark
+                  : AppColors.cardLight,
+              side: BorderSide(
+                color: isDark
+                    ? AppColors.borderDark
+                    : AppColors.borderLight,
               ),
-              const SizedBox(height: 8),
-              Obx(
-                () => Row(
-                  children: [
-                    Expanded(
-                      child: _buildTabButton(
-                        context,
-                        'Day',
-                        'day',
-                        controller.viewType.value == 'day',
-                        isDark,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildTabButton(
-                        context,
-                        'Week',
-                        'week',
-                        controller.viewType.value == 'week',
-                        isDark,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildTabButton(
-                        context,
-                        'Month',
-                        'month',
-                        controller.viewType.value == 'month',
-                        isDark,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            ),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(width: 8),
 
-          // Scope Filter Tabs
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Show schedule for',
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: isDark
-                      ? AppColors.mutedForegroundDark
-                      : AppColors.mutedForegroundLight,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Obx(
-                () => Row(
-                  children: [
-                    Expanded(
-                      child: _buildTabButton(
-                        context,
-                        'Everyone',
-                        'everyone',
-                        controller.scopeType.value == 'everyone',
-                        isDark,
-                        isScope: true,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: _buildTabButton(
-                        context,
-                        'Myself',
-                        'myself',
-                        controller.scopeType.value == 'myself',
-                        isDark,
-                        isScope: true,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+          // Date Display
+          Expanded(
+            child: Obx(() {
+              String dateText;
+              if (controller.viewType.value == 'day') {
+                dateText = _formatDate(controller.currentDate.value, 'day');
+              } else if (controller.viewType.value == 'week') {
+                final weekDates = controller.getCurrentWeekDates();
+                dateText =
+                    '${_formatDate(weekDates.first, 'short')} - ${_formatDate(weekDates.last, 'full')}';
+              } else {
+                dateText = _formatDate(
+                  controller.currentDate.value,
+                  'month',
+                );
+              }
 
-          const SizedBox(height: 16),
-
-          // Date Navigation
-          Row(
-            children: [
-              // Previous Button
-              IconButton(
-                onPressed: controller.navigatePrevious,
-                icon: const Icon(Icons.chevron_left, size: 20),
-                style: IconButton.styleFrom(
-                  backgroundColor: isDark
-                      ? AppColors.cardDark
-                      : AppColors.cardLight,
-                  side: BorderSide(
-                    color: isDark
-                        ? AppColors.borderDark
-                        : AppColors.borderLight,
-                  ),
-                ),
-              ),
-
-              const SizedBox(width: 8),
-
-              // Date Display
-              Expanded(
-                child: Obx(() {
-                  String dateText;
-                  if (controller.viewType.value == 'day') {
-                    dateText = _formatDate(controller.currentDate.value, 'day');
-                  } else if (controller.viewType.value == 'week') {
-                    final weekDates = controller.getCurrentWeekDates();
-                    dateText =
-                        '${_formatDate(weekDates.first, 'short')} - ${_formatDate(weekDates.last, 'full')}';
-                  } else {
-                    dateText = _formatDate(
-                      controller.currentDate.value,
-                      'month',
-                    );
-                  }
-
-                  return Container(
-                    height: 36,
-                    alignment: Alignment.center,
-                    child: Text(
-                      dateText,
-                      style: AppTextStyles.labelMedium.copyWith(
-                        color: isDark
-                            ? AppColors.foregroundDark
-                            : AppColors.foregroundLight,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
-                  );
-                }),
-              ),
-
-              // Today Button
-              TextButton(
-                onPressed: controller.navigateToToday,
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  backgroundColor: isDark
-                      ? AppColors.cardDark
-                      : AppColors.cardLight,
-                  side: BorderSide(
-                    color: isDark
-                        ? AppColors.borderDark
-                        : AppColors.borderLight,
-                  ),
-                ),
+              return Container(
+                height: 36,
+                alignment: Alignment.center,
                 child: Text(
-                  'Today',
-                  style: AppTextStyles.labelSmall.copyWith(
+                  dateText,
+                  style: AppTextStyles.labelMedium.copyWith(
                     color: isDark
                         ? AppColors.foregroundDark
                         : AppColors.foregroundLight,
+                    fontWeight: FontWeight.w600,
                   ),
+                  textAlign: TextAlign.center,
                 ),
-              ),
+              );
+            }),
+          ),
 
-              const SizedBox(width: 8),
-
-              // Next Button
-              IconButton(
-                onPressed: controller.navigateNext,
-                icon: const Icon(Icons.chevron_right, size: 20),
-                style: IconButton.styleFrom(
-                  backgroundColor: isDark
-                      ? AppColors.cardDark
-                      : AppColors.cardLight,
-                  side: BorderSide(
-                    color: isDark
-                        ? AppColors.borderDark
-                        : AppColors.borderLight,
-                  ),
-                ),
+          // Today Button
+          TextButton(
+            onPressed: controller.navigateToToday,
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 8,
               ),
-            ],
+              backgroundColor: isDark
+                  ? AppColors.cardDark
+                  : AppColors.cardLight,
+              side: BorderSide(
+                color: isDark
+                    ? AppColors.borderDark
+                    : AppColors.borderLight,
+              ),
+            ),
+            child: Text(
+              'Today',
+              style: AppTextStyles.labelSmall.copyWith(
+                color: isDark
+                    ? AppColors.foregroundDark
+                    : AppColors.foregroundLight,
+              ),
+            ),
+          ),
+
+          const SizedBox(width: 8),
+
+          // Next Button
+          IconButton(
+            onPressed: controller.navigateNext,
+            icon: const Icon(Icons.chevron_right, size: 20),
+            style: IconButton.styleFrom(
+              backgroundColor: isDark
+                  ? AppColors.cardDark
+                  : AppColors.cardLight,
+              side: BorderSide(
+                color: isDark
+                    ? AppColors.borderDark
+                    : AppColors.borderLight,
+              ),
+            ),
           ),
         ],
       ),
@@ -360,9 +398,10 @@ class CalendarScreen extends GetView<CalendarController> {
   }
 
   /// Build week view
+  /// Note: Vertical scrolling is handled by parent SingleChildScrollView
+  /// This method only returns the week view content
   Widget _buildWeekView(BuildContext context, bool isDark) {
-    return SingleChildScrollView(
-      child: Obx(() {
+    return Obx(() {
         final weekDates = controller.getCurrentWeekDates();
         final meetingsByDate = controller.getMeetingsByDate();
         
@@ -487,9 +526,13 @@ class CalendarScreen extends GetView<CalendarController> {
           }
         }
         
+        // FIXED HEADERS + SCROLLABLE CONTENT LAYOUT
+        // Date Header (Week Days) stays fixed when scrolling
+        // Grid header (Time + User profiles) stays fixed
+        // Only time slots and events scroll
         return Column(
           children: [
-            // Week Date Filter Indicator
+            // FIXED: Week Date Filter Indicator (if shown)
             if (controller.selectedWeekDate.value != null)
               Container(
                 margin: const EdgeInsets.all(12),
@@ -521,7 +564,7 @@ class CalendarScreen extends GetView<CalendarController> {
                 ),
               ),
 
-            // Week Days Header
+            // FIXED: Week Days Header (Date Selector) - Stays visible when scrolling
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
@@ -605,19 +648,21 @@ class CalendarScreen extends GetView<CalendarController> {
 
             const SizedBox(height: 8),
 
-            // Week Schedule with User Columns
-            _buildWeekUserTimelineGrid(
-              context,
-              usersByDate,
-              weekDates,
-              updatedMeetingsByDate, // Use updated meetings that include week-filtered events
-              timeRange,
-              isDark,
+            // SCROLLABLE: Week Schedule with User Columns
+            // Grid header (Time + User profiles) is fixed, time slots scroll
+            Expanded(
+              child: _buildWeekUserTimelineGrid(
+                context,
+                usersByDate,
+                weekDates,
+                updatedMeetingsByDate, // Use updated meetings that include week-filtered events
+                timeRange,
+                isDark,
+              ),
             ),
           ],
         );
-      }),
-    );
+      });
   }
 
   /// Build week user timeline grid (similar to day view but for multiple days)
@@ -642,28 +687,30 @@ class CalendarScreen extends GetView<CalendarController> {
       },
     );
     
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: totalWidth,
-        child: Column(
-          children: [
-            // Header Row with Time and User columns for each day
-            Container(
-              height: 80, // Fixed height for header
-              decoration: BoxDecoration(
+    // FIXED HEADER + SCROLLABLE CONTENT LAYOUT
+    // Header (Time + User profiles) stays fixed, time slots scroll
+    return Column(
+      children: [
+        // FIXED: Header Row with Time and User columns for each day
+        Container(
+          height: 80, // Fixed height for header
+          decoration: BoxDecoration(
+            color: isDark
+                ? AppColors.backgroundDark
+                : AppColors.backgroundLight,
+            border: Border(
+              bottom: BorderSide(
                 color: isDark
-                    ? AppColors.backgroundDark
-                    : AppColors.backgroundLight,
-                border: Border(
-                  bottom: BorderSide(
-                    color: isDark
-                        ? AppColors.borderDark
-                        : AppColors.borderLight,
-                    width: 1,
-                  ),
-                ),
+                    ? AppColors.borderDark
+                    : AppColors.borderLight,
+                width: 1,
               ),
+            ),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: totalWidth,
               child: Row(
                 children: [
                   // Time Label Header
@@ -754,50 +801,61 @@ class CalendarScreen extends GetView<CalendarController> {
                 ],
               ),
             ),
-            // Time Slots and Events
-            ...List.generate(numSlots, (index) {
-              final hour = timeRange.startHour + index;
-              final timeLabel = _formatHour(hour);
-
-              return Container(
-                height: 80,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.backgroundDark
-                      : AppColors.backgroundLight,
-                  border: Border(
-                    bottom: BorderSide(
-                      color: isDark
-                          ? AppColors.borderDark
-                          : AppColors.borderLight,
-                      width: 1,
-                    ),
-                  ),
-                ),
-                child: Row(
+          ),
+        ),
+        // SCROLLABLE: Time Slots and Events
+        // Expanded provides bounded height for vertical scrolling
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: totalWidth,
+              child: SingleChildScrollView(
+                child: Column(
                   children: [
-                    // Time Label
-                    Container(
-                      width: 80,
-                      height: 80,
-                      alignment: Alignment.topCenter,
-                      padding: const EdgeInsets.only(top: 8),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.backgroundDark
-                            : AppColors.backgroundLight,
-                      ),
-                      child: Text(
-                        timeLabel,
-                        style: AppTextStyles.labelSmall.copyWith(
+                    ...List.generate(numSlots, (index) {
+                      final hour = timeRange.startHour + index;
+                      final timeLabel = _formatHour(hour);
+
+                      return Container(
+                        height: 80,
+                        decoration: BoxDecoration(
                           color: isDark
-                              ? AppColors.mutedForegroundDark
-                              : AppColors.mutedForegroundLight,
+                              ? AppColors.backgroundDark
+                              : AppColors.backgroundLight,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: isDark
+                                  ? AppColors.borderDark
+                                  : AppColors.borderLight,
+                              width: 1,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    // User Columns for each day (only show users with events on that day)
-                    ...weekDates.expand((date) {
+                        child: Row(
+                          children: [
+                            // Time Label
+                            Container(
+                              width: 80,
+                              height: 80,
+                              alignment: Alignment.topCenter,
+                              padding: const EdgeInsets.only(top: 8),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? AppColors.backgroundDark
+                                    : AppColors.backgroundLight,
+                              ),
+                              child: Text(
+                                timeLabel,
+                                style: AppTextStyles.labelSmall.copyWith(
+                                  color: isDark
+                                      ? AppColors.mutedForegroundDark
+                                      : AppColors.mutedForegroundLight,
+                                ),
+                              ),
+                            ),
+                            // User Columns for each day (only show users with events on that day)
+                            ...weekDates.expand((date) {
                       // Use consistent date format (YYYY-MM-DD)
                       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
                       // meetingsByDate parameter contains updatedMeetingsByDate passed from parent
@@ -887,6 +945,34 @@ class CalendarScreen extends GetView<CalendarController> {
                           padding: const EdgeInsets.all(4),
                           child: Builder(
                             builder: (context) {
+                              // WORK HOURS OVERLAY: Get approved work hours for this user and date
+                              // Work hours are rendered as light background blocks
+                              final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                              
+                              // Check if any work hour spans this hour slot
+                              // Work hours span from login_time to logout_time
+                              bool hasWorkHourInThisSlot = false;
+                              for (var workHour in userWorkHours) {
+                                final loginParts = workHour.loginTime.split(':');
+                                final logoutParts = workHour.logoutTime.split(':');
+                                final loginHour = int.parse(loginParts[0]);
+                                final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                                final logoutHour = int.parse(logoutParts[0]);
+                                final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                                
+                                // Convert to minutes for comparison
+                                final loginMinutes = loginHour * 60 + loginMin;
+                                final logoutMinutes = logoutHour * 60 + logoutMin;
+                                final hourStartMinutes = hour * 60;
+                                final hourEndMinutes = (hour + 1) * 60;
+                                
+                                // Work hour overlaps this hour slot if it starts before hour ends AND ends after hour starts
+                                if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
+                                  hasWorkHourInThisSlot = true;
+                                  break;
+                                }
+                              }
+                              
                               // Filter events for this hour
                               final hourEvents = userMeetings.where((meeting) {
                                 final startParts = meeting.startTime.split(':');
@@ -906,73 +992,101 @@ class CalendarScreen extends GetView<CalendarController> {
                                   ? (availableHeight - totalMargins) / eventCount 
                                   : 0.0;
                               
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: hourEvents.map((meeting) {
-                                  // Use meeting creator for color (user-wise color coding)
-                                  final userForColor = meeting.creator;
-                                  final color = _getEventColorForUser(meeting, userForColor, isDark);
-                                  final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
-
-                                  // Equal size for all events in the same hour
-                                  return InkWell(
-                                    onTap: () => controller.openMeetingDetail(meeting),
-                                    child: Container(
-                                      width: double.infinity, // Full width of parent (150px)
-                                      height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
-                                      margin: EdgeInsets.only(bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0),
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: color,
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: SizedBox(
-                                        height: double.infinity,
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          mainAxisSize: MainAxisSize.min,
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Flexible(
-                                              child: Text(
-                                                meeting.title,
-                                                style: AppTextStyles.labelSmall.copyWith(
-                                                  color: textColor,
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 11,
-                                                ),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              meeting.startTime,
-                                              style: AppTextStyles.labelSmall.copyWith(
-                                                fontSize: 9,
-                                                color: textColor.withValues(alpha: 0.9),
-                                              ),
-                                            ),
-                                          ],
+                              // Use Stack to layer work hours (background) and events (foreground)
+                              // Work hours appear as light background blocks
+                              // Events appear on top of work hours
+                              return Stack(
+                                children: [
+                                  // WORK HOURS BACKGROUND BLOCK
+                                  // Render work hour as light background if it spans this hour slot
+                                  if (hasWorkHourInThisSlot)
+                                    Positioned.fill(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          // Light green for approved work hours (subtle background)
+                                          color: isDark
+                                              ? const Color(0xFF166534).withValues(alpha: 0.15) // Dark mode: dark green with low opacity
+                                              : const Color(0xFFD1FAE5).withValues(alpha: 0.6), // Light mode: light green
+                                          borderRadius: BorderRadius.circular(2),
                                         ),
                                       ),
                                     ),
-                                  );
-                                }).toList(),
+                                  
+                                  // EVENTS FOREGROUND
+                                  // Events are rendered on top of work hours
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: hourEvents.map((meeting) {
+                                      // Use meeting creator for color (user-wise color coding)
+                                      final userForColor = meeting.creator;
+                                      final color = _getEventColorForUser(meeting, userForColor, isDark);
+                                      final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
+
+                                      // Equal size for all events in the same hour
+                                      return InkWell(
+                                        onTap: () => controller.openMeetingDetail(meeting),
+                                        child: Container(
+                                          width: double.infinity, // Full width of parent (150px)
+                                          height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
+                                          margin: EdgeInsets.only(bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0),
+                                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: color,
+                                            borderRadius: BorderRadius.circular(4),
+                                          ),
+                                          child: SizedBox(
+                                            height: double.infinity,
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              mainAxisSize: MainAxisSize.min,
+                                              mainAxisAlignment: MainAxisAlignment.center,
+                                              children: [
+                                                Flexible(
+                                                  child: Text(
+                                                    meeting.title,
+                                                    style: AppTextStyles.labelSmall.copyWith(
+                                                      color: textColor,
+                                                      fontWeight: FontWeight.w600,
+                                                      fontSize: 11,
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  meeting.startTime,
+                                                  style: AppTextStyles.labelSmall.copyWith(
+                                                    fontSize: 9,
+                                                    color: textColor.withValues(alpha: 0.9),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
                               );
                             },
                           ),
                         );
                       });
-                    }),
+                    }).toList(),
                   ],
                 ),
               );
-            }),
-          ],
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 
@@ -1016,9 +1130,10 @@ class CalendarScreen extends GetView<CalendarController> {
   }
 
   /// Build day view
+  /// Note: Vertical scrolling is handled by parent SingleChildScrollView
+  /// This method only returns the day view content
   Widget _buildDayView(BuildContext context, bool isDark) {
-    return SingleChildScrollView(
-      child: Obx(() {
+    return Obx(() {
         final currentDate = controller.currentDate.value;
         // Use consistent date format (YYYY-MM-DD)
         final dateStr = '${currentDate.year}-${currentDate.month.toString().padLeft(2, '0')}-${currentDate.day.toString().padLeft(2, '0')}';
@@ -1044,13 +1159,14 @@ class CalendarScreen extends GetView<CalendarController> {
           timeRange,
           isDark,
         );
-      }),
-    );
+      });
   }
 
   /// Build month view
+  /// Note: Vertical scrolling is handled by parent SingleChildScrollView
+  /// This method only returns the month view content
   Widget _buildMonthView(BuildContext context, bool isDark) {
-    return SingleChildScrollView(
+    return Padding(
       padding: const EdgeInsets.all(12),
       child: Obx(() {
         final monthDates = controller.getMonthDates();
@@ -1525,28 +1641,30 @@ class CalendarScreen extends GetView<CalendarController> {
       print('   ⚠️ No meetings found for ${users.length} users - showing empty grid');
     }
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SizedBox(
-        width: users.length * 150.0 + 80, // 150px per user column + 80px for time labels
-        child: Column(
-          children: [
-            // User Header Row
-            Container(
-              height: 80,
-              decoration: BoxDecoration(
+    // FIXED HEADER + SCROLLABLE CONTENT LAYOUT
+    // Header (Time + User profiles) stays fixed, time slots scroll
+    return Column(
+      children: [
+        // FIXED: User Header Row (Time + User profiles)
+        Container(
+          height: 80,
+          decoration: BoxDecoration(
+            color: isDark
+                ? AppColors.backgroundDark
+                : AppColors.backgroundLight,
+            border: Border(
+              bottom: BorderSide(
                 color: isDark
-                    ? AppColors.backgroundDark
-                    : AppColors.backgroundLight,
-                border: Border(
-                  bottom: BorderSide(
-                    color: isDark
-                        ? AppColors.borderDark
-                        : AppColors.borderLight,
-                    width: 1,
-                  ),
-                ),
+                    ? AppColors.borderDark
+                    : AppColors.borderLight,
+                width: 1,
               ),
+            ),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: users.length * 150.0 + 80,
               child: Row(
                 children: [
                   // Time Label Header
@@ -1633,50 +1751,61 @@ class CalendarScreen extends GetView<CalendarController> {
                 ],
               ),
             ),
-            // Time Slots and Events
-            ...List.generate(numSlots, (index) {
-              final hour = timeRange.startHour + index;
-              final timeLabel = _formatHour(hour);
-
-              return Container(
-                height: 80,
-                decoration: BoxDecoration(
-                  color: isDark
-                      ? AppColors.backgroundDark
-                      : AppColors.backgroundLight,
-                  border: Border(
-                    bottom: BorderSide(
-                      color: isDark
-                          ? AppColors.borderDark
-                          : AppColors.borderLight,
-                      width: 1,
-                    ),
-                  ),
-                ),
-                child: Row(
+          ),
+        ),
+        // SCROLLABLE: Time Slots and Events
+        // Expanded provides bounded height for vertical scrolling
+        Expanded(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: users.length * 150.0 + 80,
+              child: SingleChildScrollView(
+                child: Column(
                   children: [
-                    // Time Label
-                    Container(
-                      width: 80,
-                      height: 80,
-                      alignment: Alignment.topCenter,
-                      padding: const EdgeInsets.only(top: 8),
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? AppColors.backgroundDark
-                            : AppColors.backgroundLight,
-                      ),
-                      child: Text(
-                        timeLabel,
-                        style: AppTextStyles.labelSmall.copyWith(
+                    ...List.generate(numSlots, (index) {
+                      final hour = timeRange.startHour + index;
+                      final timeLabel = _formatHour(hour);
+
+                      return Container(
+                        height: 80,
+                        decoration: BoxDecoration(
                           color: isDark
-                              ? AppColors.mutedForegroundDark
-                              : AppColors.mutedForegroundLight,
+                              ? AppColors.backgroundDark
+                              : AppColors.backgroundLight,
+                          border: Border(
+                            bottom: BorderSide(
+                              color: isDark
+                                  ? AppColors.borderDark
+                                  : AppColors.borderLight,
+                              width: 1,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    // User Columns
-                    ...users.map((user) {
+                        child: Row(
+                          children: [
+                            // Time Label
+                            Container(
+                              width: 80,
+                              height: 80,
+                              alignment: Alignment.topCenter,
+                              padding: const EdgeInsets.only(top: 8),
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? AppColors.backgroundDark
+                                    : AppColors.backgroundLight,
+                              ),
+                              child: Text(
+                                timeLabel,
+                                style: AppTextStyles.labelSmall.copyWith(
+                                  color: isDark
+                                      ? AppColors.mutedForegroundDark
+                                      : AppColors.mutedForegroundLight,
+                                ),
+                              ),
+                            ),
+                            // User Columns
+                            ...users.map((user) {
                       // Find meetings for this user that overlap with this hour slot
                       final userMeetings = meetings.where((meeting) {
                         // Check if user is creator or attendee
@@ -1737,6 +1866,34 @@ class CalendarScreen extends GetView<CalendarController> {
                         padding: const EdgeInsets.all(4),
                         child: Builder(
                           builder: (context) {
+                            // WORK HOURS OVERLAY: Get approved work hours for this user and date
+                            // Work hours are rendered as light background blocks
+                            final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                            
+                            // Check if any work hour spans this hour slot
+                            // Work hours span from login_time to logout_time
+                            bool hasWorkHourInThisSlot = false;
+                            for (var workHour in userWorkHours) {
+                              final loginParts = workHour.loginTime.split(':');
+                              final logoutParts = workHour.logoutTime.split(':');
+                              final loginHour = int.parse(loginParts[0]);
+                              final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                              final logoutHour = int.parse(logoutParts[0]);
+                              final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                              
+                              // Convert to minutes for comparison
+                              final loginMinutes = loginHour * 60 + loginMin;
+                              final logoutMinutes = logoutHour * 60 + logoutMin;
+                              final hourStartMinutes = hour * 60;
+                              final hourEndMinutes = (hour + 1) * 60;
+                              
+                              // Work hour overlaps this hour slot if it starts before hour ends AND ends after hour starts
+                              if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
+                                hasWorkHourInThisSlot = true;
+                                break;
+                              }
+                            }
+                            
                             // Filter events for this hour
                             final hourEvents = userMeetings.where((meeting) {
                               // Only show event in the hour slot where it starts
@@ -1761,60 +1918,84 @@ class CalendarScreen extends GetView<CalendarController> {
                                 ? (availableHeight - totalMargins) / eventCount 
                                 : 0.0;
                             
-                            return Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: hourEvents.map((meeting) {
-                                // Use meeting creator for color (user-wise color coding)
-                                final userForColor = meeting.creator;
-                                final color = _getEventColorForUser(meeting, userForColor, isDark);
-                                final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
-
-                                // Equal size for all events in the same hour
-                                return InkWell(
-                                  onTap: () => controller.openMeetingDetail(meeting),
-                                  child: Container(
-                                    width: double.infinity, // Full width of parent
-                                    height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
-                                    margin: EdgeInsets.only(bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: color,
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: SizedBox(
-                                      height: double.infinity,
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        mainAxisSize: MainAxisSize.min,
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          Flexible(
-                                            child: Text(
-                                              meeting.title,
-                                              style: AppTextStyles.labelSmall.copyWith(
-                                                color: textColor,
-                                                fontWeight: FontWeight.w600,
-                                                fontSize: 12,
-                                              ),
-                                              maxLines: 2,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            meeting.startTime,
-                                            style: AppTextStyles.labelSmall.copyWith(
-                                              fontSize: 10,
-                                              color: textColor.withValues(alpha: 0.9),
-                                            ),
-                                          ),
-                                        ],
+                            // Use Stack to layer work hours (background) and events (foreground)
+                            // Work hours appear as light background blocks
+                            // Events appear on top of work hours
+                            return Stack(
+                              children: [
+                                // WORK HOURS BACKGROUND BLOCK
+                                // Render work hour as light background if it spans this hour slot
+                                if (hasWorkHourInThisSlot)
+                                  Positioned.fill(
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        // Light green for approved work hours (subtle background)
+                                        color: isDark
+                                            ? const Color(0xFF166534).withValues(alpha: 0.15) // Dark mode: dark green with low opacity
+                                            : const Color(0xFFD1FAE5).withValues(alpha: 0.6), // Light mode: light green
+                                        borderRadius: BorderRadius.circular(2),
                                       ),
                                     ),
                                   ),
-                                );
-                              }).toList(),
+                                
+                                // EVENTS FOREGROUND
+                                // Events are rendered on top of work hours
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: hourEvents.map((meeting) {
+                                    // Use meeting creator for color (user-wise color coding)
+                                    final userForColor = meeting.creator;
+                                    final color = _getEventColorForUser(meeting, userForColor, isDark);
+                                    final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
+
+                                    // Equal size for all events in the same hour
+                                    return InkWell(
+                                      onTap: () => controller.openMeetingDetail(meeting),
+                                      child: Container(
+                                        width: double.infinity, // Full width of parent
+                                        height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
+                                        margin: EdgeInsets.only(bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: color,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: SizedBox(
+                                          height: double.infinity,
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  meeting.title,
+                                                  style: AppTextStyles.labelSmall.copyWith(
+                                                    color: textColor,
+                                                    fontWeight: FontWeight.w600,
+                                                    fontSize: 12,
+                                                  ),
+                                                  maxLines: 2,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                meeting.startTime,
+                                                style: AppTextStyles.labelSmall.copyWith(
+                                                  fontSize: 10,
+                                                  color: textColor.withValues(alpha: 0.9),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ],
                             );
                           },
                         ),
@@ -1823,10 +2004,14 @@ class CalendarScreen extends GetView<CalendarController> {
                   ],
                 ),
               );
-            }),
-          ],
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 

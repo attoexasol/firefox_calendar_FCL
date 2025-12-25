@@ -30,6 +30,7 @@ class AuthService {
   static const String updateUserHoursEndpoint = '$baseUrl/update/user_hours';
   static const String deleteUserHoursEndpoint = '$baseUrl/delete/user_hours';
   static const String getUserHoursEndpoint = '$baseUrl/all/user_hours'; // Get user work hours entries
+  static const String getCalendarUserHoursEndpoint = '$baseUrl/calander/user_hours'; // Get calendar work hours (for overlay)
   static const String dashboardSummaryEndpoint = '$baseUrl/dashboard/summary'; // Get dashboard summary (approved hours only)
   
   // =========================================================
@@ -1440,6 +1441,92 @@ class AuthService {
     }
   }
 
+  /// Get calendar user work hours (for calendar overlay)
+  /// Parameters: range (day|week|month), current_date (YYYY-MM-DD)
+  /// Returns: Map with success status and list of work hours entries
+  /// Note: This endpoint is specifically for calendar overlay display
+  Future<Map<String, dynamic>> getCalendarUserHours({
+    required String range, // day, week, or month
+    required String currentDate, // YYYY-MM-DD format
+  }) async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Get Calendar User Hours');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+        'data': [],
+      };
+    }
+
+    try {
+      // Build query parameters
+      final queryParams = <String, String>{
+        'api_token': apiToken,
+        'range': range, // day, week, or month
+        'current_date': currentDate, // YYYY-MM-DD
+      };
+
+      final uri = Uri.parse(getCalendarUserHoursEndpoint).replace(queryParameters: queryParams);
+
+      // Log request details
+      print('📍 URL: $uri');
+      print('🔷 METHOD: GET');
+      print('📤 REQUEST HEADERS:');
+      print('   Accept: application/json');
+      print('📤 QUERY PARAMETERS:');
+      queryParams.forEach((key, value) {
+        print('   $key: $value');
+      });
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+        },
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        print('✅ [AuthService] Get Calendar User Hours response status: ${response.statusCode}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'Calendar user hours fetched successfully',
+          'data': responseData['data'] ?? [],
+        };
+      } else {
+        print('❌ [AuthService] Get Calendar User Hours failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to fetch calendar user hours',
+          'data': [],
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Get Calendar User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'data': [],
+        'error': e.toString(),
+      };
+    }
+  }
+
   // =========================================================
   // GET DASHBOARD SUMMARY API
   // =========================================================
@@ -1533,6 +1620,16 @@ class AuthService {
           'success': responseData['status'] == true,
           'message': responseData['message'] ?? 'Dashboard summary fetched successfully',
           'data': summaryData ?? {},
+        };
+      } else if (response.statusCode == 401) {
+        // Handle 401 Unauthorized - token expired or invalid
+        print('❌ [AuthService] Get Dashboard Summary failed: 401 Unauthorized');
+        print('   Token may have expired or is invalid');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Authentication failed. Please login again.',
+          'data': {},
+          'requiresAuth': true, // Flag to indicate re-authentication needed
         };
       } else {
         print('❌ [AuthService] Get Dashboard Summary failed: ${response.statusCode}');

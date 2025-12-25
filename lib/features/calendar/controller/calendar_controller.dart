@@ -50,11 +50,16 @@ class CalendarController extends GetxController {
   final RxBool isLoadingEvents = false.obs;
   final RxString eventsError = ''.obs;
 
+  // Work hours for calendar overlay (approved only)
+  final RxList<WorkHour> workHours = <WorkHour>[].obs;
+  final RxBool isLoadingWorkHours = false.obs;
+
   @override
   void onInit() {
     super.onInit();
     _loadUserData();
     fetchAllEvents(); // Fetch events from API on init
+    fetchWorkHours(); // Fetch work hours for calendar overlay
   }
 
   /// Load user data from storage
@@ -345,6 +350,193 @@ class CalendarController extends GetxController {
     _loadUserData();
     // Fetch fresh events from API
     await fetchAllEvents();
+    // Also refresh work hours
+    await fetchWorkHours();
+  }
+
+  /// Fetch work hours from API for calendar overlay
+  /// Only fetches approved work hours
+  /// Uses same range and date logic as events
+  Future<void> fetchWorkHours() async {
+    try {
+      isLoadingWorkHours.value = true;
+
+      // Determine range based on view type (same as events)
+      String? range;
+      if (viewType.value == 'day') {
+        range = 'day';
+      } else if (viewType.value == 'week') {
+        range = 'week';
+      } else if (viewType.value == 'month') {
+        range = 'month';
+      }
+
+      // Format current date as YYYY-MM-DD (same as events)
+      final currentDateStr = _formatDateString(currentDate.value);
+
+      print('═══════════════════════════════════════════════════════════');
+      print('⏰ [CalendarController] Fetching work hours for overlay...');
+      print('   Range: ${range ?? 'none'}');
+      print('   Current Date: $currentDateStr');
+      print('   Scope: ${scopeType.value}');
+      print('═══════════════════════════════════════════════════════════');
+
+      // Fetch work hours from calendar endpoint
+      final result = await _authService.getCalendarUserHours(
+        range: range ?? 'week',
+        currentDate: currentDateStr,
+      );
+
+      isLoadingWorkHours.value = false;
+
+      if (result['success'] == true && result['data'] != null) {
+        final data = result['data'];
+        
+        // Handle both single object and list
+        List<dynamic> hoursList;
+        if (data is List) {
+          hoursList = data;
+        } else if (data is Map) {
+          hoursList = [data];
+        } else {
+          hoursList = [];
+        }
+
+        // Map API response to WorkHour objects
+        // Filter to only include approved work hours
+        final mappedHours = hoursList
+            .map((hourData) => _mapWorkHourFromApi(hourData))
+            .where((hour) => hour != null && hour.status.toLowerCase() == 'approved')
+            .cast<WorkHour>()
+            .toList();
+
+        workHours.value = mappedHours;
+
+        print('✅ [CalendarController] Fetched ${workHours.length} approved work hours');
+      } else {
+        print('⚠️ [CalendarController] Failed to fetch work hours: ${result['message']}');
+        workHours.value = [];
+      }
+    } catch (e) {
+      isLoadingWorkHours.value = false;
+      print('💥 [CalendarController] Error fetching work hours: $e');
+      workHours.value = [];
+    }
+  }
+
+  /// Map API work hour data to WorkHour model
+  WorkHour? _mapWorkHourFromApi(Map<String, dynamic> hourData) {
+    try {
+      // Parse date
+      String formattedDate = '';
+      if (hourData['work_date'] != null || hourData['date'] != null) {
+        final dateStr = (hourData['work_date'] ?? hourData['date']).toString();
+        try {
+          String datePart = dateStr;
+          if (dateStr.contains('T')) {
+            datePart = dateStr.split('T')[0];
+          }
+          final date = DateTime.parse(datePart);
+          formattedDate = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        } catch (e) {
+          print('⚠️ [CalendarController] Error parsing work hour date: $e');
+          return null;
+        }
+      } else {
+        return null;
+      }
+
+      // Parse login_time (start time)
+      String loginTime = '';
+      if (hourData['login_time'] != null) {
+        final loginTimeStr = hourData['login_time'].toString();
+        if (loginTimeStr.contains('T')) {
+          final timePart = loginTimeStr.split('T')[1].split(':');
+          loginTime = '${timePart[0]}:${timePart[1]}';
+        } else if (loginTimeStr.contains(' ')) {
+          final timePart = loginTimeStr.split(' ')[1].split(':');
+          loginTime = '${timePart[0]}:${timePart[1]}';
+        } else {
+          loginTime = loginTimeStr;
+        }
+      } else {
+        return null; // Must have login time
+      }
+
+      // Parse logout_time (end time)
+      String logoutTime = '';
+      if (hourData['logout_time'] != null) {
+        final logoutTimeStr = hourData['logout_time'].toString();
+        if (logoutTimeStr.contains('T')) {
+          final timePart = logoutTimeStr.split('T')[1].split(':');
+          logoutTime = '${timePart[0]}:${timePart[1]}';
+        } else if (logoutTimeStr.contains(' ')) {
+          final timePart = logoutTimeStr.split(' ')[1].split(':');
+          logoutTime = '${timePart[0]}:${timePart[1]}';
+        } else {
+          logoutTime = logoutTimeStr;
+        }
+      } else {
+        return null; // Must have logout time
+      }
+
+      // Extract user information
+      String userEmail = '';
+      int? userId;
+      
+      if (hourData['user'] != null && hourData['user'] is Map) {
+        final userData = hourData['user'] as Map<String, dynamic>;
+        userId = userData['id'] is int 
+            ? userData['id'] as int 
+            : int.tryParse(userData['id']?.toString() ?? '');
+        
+        if (userData['email'] != null) {
+          userEmail = userData['email'].toString();
+        } else if (userData['first_name'] != null) {
+          final firstName = userData['first_name'].toString().toLowerCase().replaceAll(' ', '');
+          userEmail = '$firstName@user.com';
+        }
+      } else if (hourData['user_id'] != null) {
+        userId = hourData['user_id'] is int 
+            ? hourData['user_id'] as int 
+            : int.tryParse(hourData['user_id']?.toString() ?? '');
+      }
+
+      // Extract status
+      final status = hourData['status']?.toString() ?? 'pending';
+
+      final workHour = WorkHour(
+        id: hourData['id']?.toString() ?? '',
+        date: formattedDate,
+        loginTime: loginTime,
+        logoutTime: logoutTime,
+        userId: userId,
+        userEmail: userEmail,
+        status: status,
+      );
+
+      return workHour;
+    } catch (e, stackTrace) {
+      print('⚠️ [CalendarController] Error mapping work hour: $e');
+      print('   Stack trace: $stackTrace');
+      return null;
+    }
+  }
+
+  /// Get work hours for a specific user and date
+  /// Used for rendering work hours overlay in calendar grid
+  List<WorkHour> getWorkHoursForUser(String userEmail, String dateStr) {
+    return workHours.where((hour) {
+      // Match by date
+      if (hour.date != dateStr) return false;
+      
+      // Match by user email (for Everyone view) or current user (for Myself view)
+      if (scopeType.value == 'myself') {
+        return hour.userEmail == userEmail || hour.userId == userId.value;
+      } else {
+        return hour.userEmail == userEmail;
+      }
+    }).toList();
   }
 
   /// Change view type (day/week/month)
@@ -354,6 +546,8 @@ class CalendarController extends GetxController {
     selectedWeekDate.value = null; // Reset date filter when changing views
     // Refresh events with new view type
     fetchAllEvents();
+    // Also refresh work hours
+    fetchWorkHours();
   }
 
   /// Change scope type (everyone/myself)
@@ -362,6 +556,8 @@ class CalendarController extends GetxController {
     scopeType.value = type;
     // Fetch events based on scope (different API endpoints)
     fetchAllEvents(); // This will use the correct endpoint based on scope
+    // Also refresh work hours
+    fetchWorkHours();
   }
 
   /// Apply scope filter to meetings
@@ -419,6 +615,8 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] Navigated PREVIOUS: $oldDate → $newDateStr');
     // Refresh events when date changes
     fetchAllEvents();
+    // Also refresh work hours
+    fetchWorkHours();
   }
 
   /// Navigate to next period
@@ -447,6 +645,8 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] Navigated NEXT: $oldDate → $newDateStr');
     // Refresh events when date changes
     fetchAllEvents();
+    // Also refresh work hours
+    fetchWorkHours();
   }
 
   /// Navigate to today
@@ -460,6 +660,8 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] Navigated to TODAY: $oldDate → $newDateStr');
     // Refresh events when date changes
     fetchAllEvents();
+    // Also refresh work hours
+    fetchWorkHours();
   }
 
   /// Set current date from calendar picker
@@ -471,6 +673,8 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] Date changed via picker: $oldDate → $newDateStr');
     // Refresh events when date changes
     fetchAllEvents();
+    // Also refresh work hours
+    fetchWorkHours();
   }
 
   /// Toggle calendar picker
@@ -908,4 +1112,26 @@ class TimeRange {
   final int endHour;
 
   TimeRange({required this.startHour, required this.endHour});
+}
+
+/// Work Hour Model for Calendar Overlay
+/// Represents approved work hours to display as background blocks
+class WorkHour {
+  final String id;
+  final String date; // YYYY-MM-DD format
+  final String loginTime; // HH:MM format (start time)
+  final String logoutTime; // HH:MM format (end time)
+  final int? userId; // User ID from API
+  final String userEmail; // User email for matching
+  final String status; // 'approved', 'pending', 'rejected'
+
+  WorkHour({
+    required this.id,
+    required this.date,
+    required this.loginTime,
+    required this.logoutTime,
+    this.userId,
+    required this.userEmail,
+    required this.status,
+  });
 }
