@@ -1,4 +1,5 @@
 import 'package:firefox_calendar/services/auth_service.dart';
+import 'package:firefox_calendar/features/hours/controller/hours_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -289,6 +290,26 @@ class DashboardController extends GetxController {
         // Refresh dashboard summary after creating work hours entry
         // This ensures summary reflects latest approved hours totals
         await refreshDashboardSummary();
+        
+        // ============================================================
+        // AUTO-REFRESH HOURS SCREEN
+        // ============================================================
+        // After successful START API call, refresh Hours screen data
+        // This ensures Hours screen UI updates immediately without manual refresh
+        // Uses GetX controller access to trigger HoursController refresh
+        try {
+          if (Get.isRegistered<HoursController>()) {
+            final hoursController = Get.find<HoursController>();
+            print('🔄 [DashboardController] Refreshing Hours screen after START...');
+            await hoursController.refreshWorkLogs();
+            print('✅ [DashboardController] Hours screen refreshed successfully');
+          } else {
+            print('⚠️ [DashboardController] HoursController not registered yet - will refresh when Hours screen opens');
+          }
+        } catch (e) {
+          print('⚠️ [DashboardController] Could not refresh Hours screen: $e');
+          // Non-critical error - Hours screen will refresh when opened
+        }
       } else {
         Get.snackbar(
           'Error',
@@ -435,6 +456,26 @@ class DashboardController extends GetxController {
         // Refresh dashboard summary after updating work hours entry
         // This ensures summary reflects latest approved hours totals
         await refreshDashboardSummary();
+        
+        // ============================================================
+        // AUTO-REFRESH HOURS SCREEN
+        // ============================================================
+        // After successful END API call, refresh Hours screen data
+        // This ensures Hours screen UI updates immediately without manual refresh
+        // Uses GetX controller access to trigger HoursController refresh
+        try {
+          if (Get.isRegistered<HoursController>()) {
+            final hoursController = Get.find<HoursController>();
+            print('🔄 [DashboardController] Refreshing Hours screen after END...');
+            await hoursController.refreshWorkLogs();
+            print('✅ [DashboardController] Hours screen refreshed successfully');
+          } else {
+            print('⚠️ [DashboardController] HoursController not registered yet - will refresh when Hours screen opens');
+          }
+        } catch (e) {
+          print('⚠️ [DashboardController] Could not refresh Hours screen: $e');
+          // Non-critical error - Hours screen will refresh when opened
+        }
 
         Get.snackbar(
           'Success',

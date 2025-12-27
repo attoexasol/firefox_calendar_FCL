@@ -54,6 +54,13 @@ class CalendarController extends GetxController {
   final RxList<WorkHour> workHours = <WorkHour>[].obs;
   final RxBool isLoadingWorkHours = false.obs;
 
+  // Scroll position tracking for sticky header behavior
+  final RxDouble scrollOffset = 0.0.obs;
+  final RxBool isDaysDatesRowSticky = false.obs;
+  
+  // Threshold for showing sticky header (in pixels)
+  static const double stickyHeaderThreshold = 100.0;
+
   @override
   void onInit() {
     super.onInit();

@@ -26,30 +26,52 @@ class CalendarScreen extends GetView<CalendarController> {
           : AppColors.backgroundLight,
       body: Stack(
         children: [
-          // Main calendar content with proper scroll behavior
+          // Main calendar content with scroll tracking
           SafeArea(
             child: Column(
               children: [
-                // Scrollable top section: TopBar + Filters + Date Navigation (scrolls away/hidden)
-                SingleChildScrollView(
-                  physics: const ClampingScrollPhysics(),
-                  child: Column(
-                    children: [
-                      // 1. Top Bar - Scrolls away naturally
-                      const TopBar(title: 'Calendar'),
-                      // 2. Show Calendar By (Day/Week/Month tabs) - Scrolls away naturally
-                      _buildShowCalendarBy(context, isDark),
-                      // 3. Show Schedule For (Everyone/Myself tabs) - Scrolls away naturally
-                      _buildShowScheduleFor(context, isDark),
-                      // 4. Date Range Navigation - Scrolls away naturally
-                      _buildDateNavigation(context, isDark),
-                    ],
+                // Scrollable top section: TopBar + Filters + Date Navigation (scrolls away)
+                NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    // Track scroll position and direction
+                    if (notification is ScrollUpdateNotification) {
+                      final scrollOffset = notification.metrics.pixels;
+                      controller.scrollOffset.value = scrollOffset;
+                      
+                      // Show sticky header when scrolling down past threshold
+                      // Hide when scrolling back up near top
+                      final shouldShowSticky = scrollOffset > CalendarController.stickyHeaderThreshold;
+                      
+                      if (controller.isDaysDatesRowSticky.value != shouldShowSticky) {
+                        controller.isDaysDatesRowSticky.value = shouldShowSticky;
+                      }
+                    }
+                    return false;
+                  },
+                  child: SingleChildScrollView(
+                    physics: const ClampingScrollPhysics(),
+                    child: Column(
+                      children: [
+                        // 1. Top Bar - Scrolls away naturally
+                        const TopBar(title: 'Calendar'),
+                        // 2. Show Calendar By (Day/Week/Month tabs) - Scrolls away naturally
+                        _buildShowCalendarBy(context, isDark),
+                        // 3. Show Schedule For (Everyone/Myself tabs) - Scrolls away naturally
+                        _buildShowScheduleFor(context, isDark),
+                        // 4. Date Range Navigation - Scrolls away naturally
+                        _buildDateNavigation(context, isDark),
+                        // 5. Days/Dates Row - Normal position (scrolls away)
+                        Obx(() {
+                          if (controller.viewType.value == 'week') {
+                            return _buildDaysDatesRowNormal(context, isDark);
+                          }
+                          return const SizedBox.shrink();
+                        }),
+                      ],
+                    ),
                   ),
                 ),
-                // Calendar View - Fixed headers + scrollable content
-                // When scrolling: Date Header + Time/User Profile row remain FIXED
-                // Time slots and events scroll
-                // When not scrolling: Screen remains in normal default state
+                // Calendar View - Scrollable content
                 Expanded(
                   child: Obx(() {
                     // Show loading state
@@ -71,7 +93,7 @@ class CalendarScreen extends GetView<CalendarController> {
                       return _buildEmptyState(isDark);
                     }
 
-                    // Show calendar views with fixed Date Header + Time/User Profile row
+                    // Show calendar views
                     if (controller.viewType.value == 'week') {
                       return _buildWeekView(context, isDark);
                     } else if (controller.viewType.value == 'day') {
@@ -84,6 +106,25 @@ class CalendarScreen extends GetView<CalendarController> {
               ],
             ),
           ),
+          // Sticky Days/Dates Row - Appears when scrolling down
+          Obx(() {
+            if (controller.viewType.value == 'week' && controller.isDaysDatesRowSticky.value) {
+              return Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeInOut,
+                    child: _buildDaysDatesRowSticky(context, isDark),
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          }),
           // Event Details Dialog listener
           _buildEventDetailsListener(),
         ],
@@ -350,6 +391,137 @@ class CalendarScreen extends GetView<CalendarController> {
     );
   }
 
+  /// Build days/dates row in normal position (scrolls away)
+  Widget _buildDaysDatesRowNormal(BuildContext context, bool isDark) {
+    final weekDates = controller.getCurrentWeekDates();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            width: 1,
+          ),
+        ),
+      ),
+      child: Row(
+        children: weekDates.map((date) {
+          return _buildDayDateItem(date, isDark);
+        }).toList(),
+      ),
+    );
+  }
+
+  /// Build days/dates row in sticky position (fixed at top when scrolling)
+  Widget _buildDaysDatesRowSticky(BuildContext context, bool isDark) {
+    final weekDates = controller.getCurrentWeekDates();
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? AppColors.borderDark : AppColors.borderLight,
+            width: 1,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 4,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Row(
+        children: weekDates.map((date) {
+          return _buildDayDateItem(date, isDark);
+        }).toList(),
+      ),
+    );
+  }
+
+  /// Build individual day/date item
+  Widget _buildDayDateItem(DateTime date, bool isDark) {
+    final today = DateTime.now();
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final isToday =
+        date.year == today.year &&
+        date.month == today.month &&
+        date.day == today.day;
+    final isFiltered =
+        controller.selectedWeekDate.value != null &&
+        controller.selectedWeekDate.value!
+                .toIso8601String()
+                .split('T')[0] ==
+            dateStr;
+
+    return Expanded(
+      child: InkWell(
+        onTap: () => controller.handleWeekDateClick(date),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: isFiltered
+                ? AppColors.primary.withValues(alpha: 0.1)
+                : isToday
+                    ? AppColors.primary.withValues(alpha: 0.05)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: isToday
+                ? Border.all(
+                    color: AppColors.primary,
+                    width: 2,
+                  )
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _getWeekdayShort(date.weekday),
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: isFiltered
+                      ? AppColors.primary
+                      : isToday
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.mutedForegroundDark
+                              : AppColors.mutedForegroundLight),
+                  fontWeight: isToday || isFiltered
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${date.day}',
+                style: AppTextStyles.labelMedium.copyWith(
+                  color: isFiltered
+                      ? AppColors.primary
+                      : isToday
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight),
+                  fontWeight: isToday || isFiltered
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Build tab button
   Widget _buildTabButton(
     BuildContext context,
@@ -564,89 +736,8 @@ class CalendarScreen extends GetView<CalendarController> {
                 ),
               ),
 
-            // FIXED: Week Days Header (Date Selector) - Stays visible when scrolling
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: weekDates.map((date) {
-                  final today = DateTime.now();
-                  // Use consistent date format (YYYY-MM-DD)
-                  final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-                  final isToday =
-                      date.year == today.year &&
-                      date.month == today.month &&
-                      date.day == today.day;
-                  final isFiltered =
-                      controller.selectedWeekDate.value != null &&
-                      controller.selectedWeekDate.value!
-                              .toIso8601String()
-                              .split('T')[0] ==
-                          dateStr;
-
-                  return Expanded(
-                    child: InkWell(
-                      onTap: () => controller.handleWeekDateClick(date),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                        margin: const EdgeInsets.symmetric(horizontal: 2),
-                        decoration: BoxDecoration(
-                          color: isFiltered
-                              ? AppColors.primary.withValues(alpha: 0.1)
-                              : isToday
-                                  ? AppColors.primary.withValues(alpha: 0.05)
-                                  : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                          border: isToday
-                              ? Border.all(
-                                  color: AppColors.primary,
-                                  width: 2,
-                                )
-                              : null,
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              _getWeekdayShort(date.weekday),
-                              style: AppTextStyles.labelSmall.copyWith(
-                                color: isFiltered
-                                    ? AppColors.primary
-                                    : isToday
-                                        ? AppColors.primary
-                                        : (isDark
-                                            ? AppColors.mutedForegroundDark
-                                            : AppColors.mutedForegroundLight),
-                                fontWeight: isToday || isFiltered
-                                    ? FontWeight.w600
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${date.day}',
-                              style: AppTextStyles.labelMedium.copyWith(
-                                color: isFiltered
-                                    ? AppColors.primary
-                                    : isToday
-                                        ? AppColors.primary
-                                        : (isDark
-                                            ? AppColors.foregroundDark
-                                            : AppColors.foregroundLight),
-                                fontWeight: isToday || isFiltered
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-
-            const SizedBox(height: 8),
+            // Days/Dates row removed from here - now in scrollable header
+            // It will appear as sticky when scrolling down
 
             // SCROLLABLE: Week Schedule with User Columns
             // Grid header (Time + User profiles) is fixed, time slots scroll
