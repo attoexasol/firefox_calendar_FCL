@@ -39,6 +39,11 @@ class HoursController extends GetxController {
   // Work logs - updated to match React component structure
   final RxList<WorkLog> workLogs = <WorkLog>[].obs;
   
+  // Calendar events - for informational display
+  final RxList<CalendarEvent> calendarEvents = <CalendarEvent>[].obs;
+  final RxBool isLoadingEvents = false.obs;
+  final RxString eventsError = ''.obs;
+  
   // Loading and modal states
   final RxBool isLoading = false.obs;
   final RxBool showTimeEntryModal = false.obs;
@@ -57,6 +62,17 @@ double get totalHours =>
     _loadUserData();
     // Fetch work hours from API instead of mock data
     fetchWorkHours();
+    // Fetch calendar events for informational display
+    fetchCalendarEvents();
+  }
+
+  @override
+  void onReady() {
+    super.onReady();
+    // Refresh data when screen becomes visible
+    // This ensures fresh data when returning to the Hours screen
+    fetchWorkHours();
+    fetchCalendarEvents();
   }
 
   /// Load user data from storage
@@ -71,24 +87,29 @@ double get totalHours =>
     activeTab.value = tab;
     // Fetch work hours for the new range
     fetchWorkHours();
+    // Fetch calendar events for the new range
+    fetchCalendarEvents();
   }
 
   /// Navigate to previous week/month
   void navigateToPreviousWeek() {
     currentDate.value = currentDate.value.subtract(const Duration(days: 7));
     fetchWorkHours();
+    fetchCalendarEvents();
   }
 
   /// Navigate to next week/month
   void navigateToNextWeek() {
     currentDate.value = currentDate.value.add(const Duration(days: 7));
     fetchWorkHours();
+    fetchCalendarEvents();
   }
 
   /// Navigate to current week/month (Today button)
   void navigateToToday() {
     currentDate.value = DateTime.now();
     fetchWorkHours();
+    fetchCalendarEvents();
   }
 
   /// Get current week dates for header display
@@ -554,6 +575,225 @@ double get totalHours =>
   }
 
   // ============================================================
+  // CALENDAR EVENTS - Informational Display
+  // ============================================================
+
+  /// Fetch calendar events from API
+  /// Fetches current user's events for informational display
+  /// Events are filtered by date based on activeTab
+  Future<void> fetchCalendarEvents() async {
+    if (isLoadingEvents.value) return;
+
+    try {
+      isLoadingEvents.value = true;
+      eventsError.value = '';
+      
+      print('═══════════════════════════════════════════════════════════');
+      print('📅 [HoursController] Fetching calendar events...');
+      print('   Active Tab: ${activeTab.value}');
+      print('   Current Date: ${currentDate.value}');
+      print('═══════════════════════════════════════════════════════════');
+
+      // Format current date as YYYY-MM-DD
+      final currentDateStr = _formatDateString(currentDate.value);
+      
+      // Determine range based on active tab
+      String range = 'day'; // Default to day for Hours screen
+      if (activeTab.value == 'week') {
+        range = 'week';
+      } else if (activeTab.value == 'month') {
+        range = 'month';
+      }
+
+      // Call API to get current user's events
+      final result = await _authService.getMyEvents(
+        range: range,
+        currentDate: currentDateStr,
+      );
+
+      if (result['success'] == true && result['data'] != null) {
+        final eventsData = result['data'];
+        
+        // Handle both single event object and list of events
+        List<dynamic> eventsList;
+        if (eventsData is List) {
+          eventsList = eventsData;
+        } else if (eventsData is Map) {
+          eventsList = [eventsData];
+        } else {
+          eventsList = [];
+        }
+
+        // Map API response to CalendarEvent objects
+        final mappedEvents = eventsList.map((eventData) {
+          return _mapEventToCalendarEvent(eventData as Map<String, dynamic>);
+        }).where((event) => event != null).cast<CalendarEvent>().toList();
+
+        // Filter events by date based on active tab
+        calendarEvents.value = _filterEventsByDate(mappedEvents);
+        
+        print('✅ [HoursController] Fetched ${mappedEvents.length} events, ${calendarEvents.length} after filtering');
+      } else {
+        eventsError.value = result['message'] ?? 'Failed to fetch events';
+        print('❌ [HoursController] Failed to fetch events: ${result['message']}');
+        calendarEvents.value = [];
+      }
+    } catch (e) {
+      isLoadingEvents.value = false;
+      eventsError.value = 'An error occurred while fetching events';
+      print('💥 [HoursController] Error fetching calendar events: $e');
+      calendarEvents.value = [];
+    } finally {
+      isLoadingEvents.value = false;
+    }
+  }
+
+  /// Format date to YYYY-MM-DD string
+  String _formatDateString(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Map API event data to CalendarEvent model
+  CalendarEvent? _mapEventToCalendarEvent(Map<String, dynamic> eventData) {
+    try {
+      // Extract date and time
+      final dateStr = eventData['date']?.toString() ?? '';
+      final startTimeStr = eventData['start_time']?.toString() ?? '';
+      final endTimeStr = eventData['end_time']?.toString() ?? '';
+      final title = eventData['title']?.toString() ?? 'Untitled Event';
+      final id = eventData['id']?.toString() ?? '';
+      
+      // Extract event type name
+      String? eventTypeName;
+      if (eventData['event_type'] != null && eventData['event_type'] is Map) {
+        final eventType = eventData['event_type'] as Map<String, dynamic>;
+        eventTypeName = eventType['event_name']?.toString();
+      }
+
+      // Parse date
+      DateTime? parsedDate;
+      if (dateStr.isNotEmpty) {
+        try {
+          String datePart = dateStr;
+          if (dateStr.contains('T')) {
+            datePart = dateStr.split('T')[0];
+          }
+          parsedDate = DateTime.parse(datePart);
+        } catch (e) {
+          print('⚠️ [HoursController] Error parsing date: $dateStr');
+        }
+      }
+
+      // Parse start time
+      DateTime? parsedStartTime;
+      if (startTimeStr.isNotEmpty && parsedDate != null) {
+        try {
+          if (startTimeStr.contains('T')) {
+            parsedStartTime = DateTime.parse(startTimeStr);
+          } else {
+            // Time-only format (HH:MM) - combine with date
+            final timeParts = startTimeStr.split(':');
+            if (timeParts.length >= 2) {
+              final hour = int.tryParse(timeParts[0]) ?? 0;
+              final minute = int.tryParse(timeParts[1]) ?? 0;
+              parsedStartTime = DateTime(parsedDate.year, parsedDate.month, parsedDate.day, hour, minute);
+            }
+          }
+        } catch (e) {
+          print('⚠️ [HoursController] Error parsing start_time: $startTimeStr');
+        }
+      }
+
+      // Parse end time
+      DateTime? parsedEndTime;
+      if (endTimeStr.isNotEmpty && parsedDate != null) {
+        try {
+          if (endTimeStr.contains('T')) {
+            parsedEndTime = DateTime.parse(endTimeStr);
+          } else {
+            // Time-only format (HH:MM) - combine with date
+            final timeParts = endTimeStr.split(':');
+            if (timeParts.length >= 2) {
+              final hour = int.tryParse(timeParts[0]) ?? 0;
+              final minute = int.tryParse(timeParts[1]) ?? 0;
+              parsedEndTime = DateTime(parsedDate.year, parsedDate.month, parsedDate.day, hour, minute);
+            }
+          }
+        } catch (e) {
+          print('⚠️ [HoursController] Error parsing end_time: $endTimeStr');
+        }
+      }
+
+      if (parsedDate == null) {
+        print('⚠️ [HoursController] Skipping event with invalid date: $title');
+        return null;
+      }
+
+      return CalendarEvent(
+        id: id,
+        title: title,
+        eventTypeName: eventTypeName,
+        date: parsedDate,
+        startTime: parsedStartTime,
+        endTime: parsedEndTime,
+      );
+    } catch (e) {
+      print('❌ [HoursController] Error mapping event: $e');
+      return null;
+    }
+  }
+
+  /// Filter events by date based on active tab
+  /// Day: Show only today's events
+  /// Week: Show events in current week
+  /// Month: Show events in current month
+  List<CalendarEvent> _filterEventsByDate(List<CalendarEvent> events) {
+    final now = DateTime.now();
+    
+    switch (activeTab.value) {
+      case 'day':
+        // Show only events for the selected day
+        final selectedDate = DateTime(currentDate.value.year, currentDate.value.month, currentDate.value.day);
+        return events.where((event) {
+          final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
+          return eventDate.isAtSameMomentAs(selectedDate);
+        }).toList();
+        
+      case 'week':
+        // Show events in current week
+        final weekDates = _getCurrentWeekDates();
+        final weekStart = weekDates.first;
+        final weekEnd = weekDates.last;
+        
+        return events.where((event) {
+          final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
+          return eventDate.isAfter(weekStart.subtract(const Duration(days: 1))) &&
+                 eventDate.isBefore(weekEnd.add(const Duration(days: 1)));
+        }).toList();
+        
+      case 'month':
+        // Show events in current month
+        final monthStart = DateTime(currentDate.value.year, currentDate.value.month, 1);
+        final monthEnd = DateTime(currentDate.value.year, currentDate.value.month + 1, 0);
+        
+        return events.where((event) {
+          final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
+          return eventDate.isAfter(monthStart.subtract(const Duration(days: 1))) &&
+                 eventDate.isBefore(monthEnd.add(const Duration(days: 1)));
+        }).toList();
+        
+      default:
+        return events;
+    }
+  }
+
+  /// Get filtered calendar events for display
+  /// Returns events filtered by current date/tab selection
+  List<CalendarEvent> getFilteredCalendarEvents() {
+    return calendarEvents;
+  }
+
+  // ============================================================
   // Helper methods for Dashboard summaries and Payroll calculations
   // These methods are structured for future use but not implemented yet
   // ============================================================
@@ -905,5 +1145,47 @@ class WorkLog {
       loginTime: parsedLoginTime,
       logoutTime: parsedLogoutTime,
     );
+  }
+}
+
+/// Calendar Event Model - for informational display in Hours screen
+/// Simplified model for displaying events as read-only cards
+class CalendarEvent {
+  final String id;
+  final String title;
+  final String? eventTypeName; // event_type.event_name from API
+  final DateTime date;
+  final DateTime? startTime;
+  final DateTime? endTime;
+
+  CalendarEvent({
+    required this.id,
+    required this.title,
+    this.eventTypeName,
+    required this.date,
+    this.startTime,
+    this.endTime,
+  });
+
+  /// Format time for display (09:00 AM format)
+  String formatTime(DateTime time) {
+    final hour = time.hour;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = hour >= 12 ? 'PM' : 'AM';
+    final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
+    
+    return '$displayHour:$minute $period';
+  }
+
+  /// Get formatted time range (e.g., "09:00 AM - 05:00 PM")
+  String getTimeRange() {
+    if (startTime != null && endTime != null) {
+      return '${formatTime(startTime!)} - ${formatTime(endTime!)}';
+    } else if (startTime != null) {
+      return formatTime(startTime!);
+    } else if (endTime != null) {
+      return formatTime(endTime!);
+    }
+    return 'All day';
   }
 }

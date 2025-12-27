@@ -49,7 +49,7 @@ class HoursScreen extends GetView<HoursController> {
             // Date Navigation Section
             _buildDateNavigation(context, isDark),
 
-            // Summary Card + Work Logs
+            // Summary Card + Events + Work Logs
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -59,6 +59,9 @@ class HoursScreen extends GetView<HoursController> {
                     _buildSummaryCard(isDark),
                     
                     const SizedBox(height: 16),
+
+                    // Calendar Events Section (if any)
+                    Obx(() => _buildCalendarEventsSection(isDark)),
 
                     // Work Logs List
                     Expanded(child: _buildWorkLogsList(isDark)),
@@ -685,5 +688,185 @@ class HoursScreen extends GetView<HoursController> {
     final displayHour = hour > 12 ? hour - 12 : (hour == 0 ? 12 : hour);
     
     return '$displayHour:$minute $period';
+  }
+
+  // ============================================================
+  // CALENDAR EVENTS SECTION
+  // ============================================================
+
+  /// Build Calendar Events Section
+  /// Shows informational event cards above work hour cards
+  Widget _buildCalendarEventsSection(bool isDark) {
+    // Show loading state if events are loading
+    if (controller.isLoadingEvents.value) {
+      return const SizedBox.shrink(); // Don't show loading indicator, just hide section
+    }
+    
+    // Show error state (optional - can be silent)
+    if (controller.eventsError.value.isNotEmpty) {
+      // Silently handle error - don't show error message to avoid cluttering UI
+      return const SizedBox.shrink();
+    }
+    
+    final filteredEvents = controller.getFilteredCalendarEvents();
+    
+    // Don't show section if no events
+    if (filteredEvents.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section Header
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            'Calendar Events',
+            style: AppTextStyles.labelLarge.copyWith(
+              color: isDark
+                  ? AppColors.foregroundDark
+                  : AppColors.foregroundLight,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        
+        // Event Cards List
+        ...filteredEvents.map((event) => Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: _buildEventCard(event, isDark),
+        )),
+        
+        // Separator between events and work hours
+        const SizedBox(height: 8),
+        Divider(
+          height: 1,
+          thickness: 1,
+          color: isDark 
+              ? AppColors.borderDark 
+              : AppColors.borderLight,
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+
+  /// Build individual Event Card
+  /// Read-only informational card, visually distinct from work hour cards
+  Widget _buildEventCard(CalendarEvent event, bool isDark) {
+    // Lighter background and different styling to differentiate from work hour cards
+    final cardBackgroundColor = isDark
+        ? AppColors.cardDark.withValues(alpha: 0.6)
+        : AppColors.cardLight.withValues(alpha: 0.6);
+    
+    final borderColor = isDark
+        ? AppColors.borderDark.withValues(alpha: 0.5)
+        : AppColors.borderLight.withValues(alpha: 0.5);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBackgroundColor,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        border: Border.all(
+          color: borderColor,
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isDark 
+                ? Colors.black.withValues(alpha: 0.1)
+                : Colors.grey.withValues(alpha: 0.05),
+            blurRadius: 2,
+            offset: const Offset(0, 1),
+          ),
+        ],
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Event Icon (different from work hour icon)
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              Icons.event,
+              size: 20,
+              color: AppColors.primary,
+            ),
+          ),
+          
+          const SizedBox(width: 12),
+          
+          // Event Details
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Event Title
+                Text(
+                  event.title,
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: isDark
+                        ? AppColors.foregroundDark
+                        : AppColors.foregroundLight,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                
+                const SizedBox(height: 8),
+                
+                // Event Type (if available)
+                if (event.eventTypeName != null && event.eventTypeName!.isNotEmpty) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      event.eventTypeName!,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: AppColors.primary,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                
+                // Time Range
+                Row(
+                  children: [
+                    Icon(
+                      Icons.access_time,
+                      size: 14,
+                      color: isDark
+                          ? AppColors.mutedForegroundDark
+                          : const Color(0xFF6B7280),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      event.getTimeRange(),
+                      style: AppTextStyles.bodySmall.copyWith(
+                        color: isDark
+                            ? AppColors.mutedForegroundDark
+                            : const Color(0xFF6B7280),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
