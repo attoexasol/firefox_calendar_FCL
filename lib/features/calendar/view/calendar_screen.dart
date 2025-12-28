@@ -1744,7 +1744,9 @@ class CalendarScreen extends GetView<CalendarController> {
         : _getEventColorForUser(meeting, userForColor, isDark);
     final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
 
-    return InkWell(
+    return _HoverableCard(
+      isDark: isDark,
+      baseColor: color,
       onTap: () {
         if (meeting.category == 'work_hour') {
           controller.openWorkHourDetail(meeting);
@@ -1752,47 +1754,35 @@ class CalendarScreen extends GetView<CalendarController> {
           controller.openMeetingDetail(meeting);
         }
       },
-      child: Container(
-        width: double.infinity,
-        constraints: const BoxConstraints(
-          minHeight: 28,
-        ),
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(
-          color: color,
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Flexible(
-              child: Text(
-                meeting.title,
-                style: AppTextStyles.labelSmall.copyWith(
-                  color: textColor,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 10,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              meeting.title,
+              style: AppTextStyles.labelSmall.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.w600,
+                fontSize: 10,
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 2),
-            Flexible(
-              child: Text(
-                meeting.startTime,
-                style: AppTextStyles.labelSmall.copyWith(
-                  fontSize: 8,
-                  color: textColor.withValues(alpha: 0.9),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Flexible(
+            child: Text(
+              meeting.startTime,
+              style: AppTextStyles.labelSmall.copyWith(
+                fontSize: 8,
+                color: textColor.withValues(alpha: 0.9),
               ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1835,68 +1825,62 @@ class CalendarScreen extends GetView<CalendarController> {
                                             ? Colors.blue.shade200
                                             : Colors.blue.shade900;
 
-                                        return InkWell(
+                                        return _HoverableCard(
+                                          isDark: isDark,
+                                          baseColor: hourCardColor,
                                           onTap: () => controller.openWorkHourDetail(workHour),
-                                          child: Container(
-                                            width: double.infinity,
-        constraints: const BoxConstraints(
-          minHeight: 28,
-        ),
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                                            decoration: BoxDecoration(
-                                              color: hourCardColor,
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(
-                                                color: isDark
-                                                    ? Colors.blue.withValues(alpha: 0.5)
-                                                    : Colors.blue.withValues(alpha: 0.3),
-                                                width: 1,
-                                              ),
+                                          decoration: BoxDecoration(
+                                            color: hourCardColor,
+                                            borderRadius: BorderRadius.circular(4),
+                                            border: Border.all(
+                                              color: isDark
+                                                  ? Colors.blue.withValues(alpha: 0.5)
+                                                  : Colors.blue.withValues(alpha: 0.3),
+                                              width: 1,
                                             ),
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Row(
                                                 mainAxisSize: MainAxisSize.min,
                                                 children: [
-                                                  Row(
-              mainAxisSize: MainAxisSize.min,
-                                                    children: [
-                                                      Icon(
-                                                        Icons.access_time,
-                  size: 10,
-                                                        color: hourTextColor,
-                                                      ),
-                const SizedBox(width: 3),
-                                                      Flexible(
-                                                        child: Text(
-                                                          '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
-                                                          style: AppTextStyles.labelSmall.copyWith(
-                                                            color: hourTextColor,
-                                                            fontWeight: FontWeight.w600,
-                      fontSize: 9,
-                                                          ),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                      ),
-                                                    ],
+                                                  Icon(
+                                                    Icons.access_time,
+                                                    size: 10,
+                                                    color: hourTextColor,
                                                   ),
-                                                  const SizedBox(height: 2),
-            Flexible(
-              child: Text(
-                                                    '${totalHours.toStringAsFixed(1)}h',
-                                                    style: AppTextStyles.labelSmall.copyWith(
-                  fontSize: 8,
-                                                      color: hourTextColor.withValues(alpha: 0.9),
+                                                  const SizedBox(width: 3),
+                                                  Flexible(
+                                                    child: Text(
+                                                      '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
+                                                      style: AppTextStyles.labelSmall.copyWith(
+                                                        color: hourTextColor,
+                                                        fontWeight: FontWeight.w600,
+                                                        fontSize: 9,
                                                       ),
                                                       maxLines: 1,
                                                       overflow: TextOverflow.ellipsis,
                                                     ),
                                                   ),
-          ],
-        ),
-      ),
-    );
+                                                ],
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Flexible(
+                                                child: Text(
+                                                  '${totalHours.toStringAsFixed(1)}h',
+                                                  style: AppTextStyles.labelSmall.copyWith(
+                                                    fontSize: 8,
+                                                    color: hourTextColor.withValues(alpha: 0.9),
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
   }
 
   /// Build day view
@@ -3439,5 +3423,75 @@ class _DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
       return '${parts[0]} ${parts[1]}';
     }
     return userEmail.split('@')[0];
+  }
+}
+
+/// Hoverable card widget that shows a light gray hover effect
+class _HoverableCard extends StatefulWidget {
+  final bool isDark;
+  final Color baseColor;
+  final VoidCallback onTap;
+  final Widget child;
+  final BoxDecoration? decoration;
+
+  const _HoverableCard({
+    required this.isDark,
+    required this.baseColor,
+    required this.onTap,
+    required this.child,
+    this.decoration,
+  });
+
+  @override
+  State<_HoverableCard> createState() => _HoverableCardState();
+}
+
+class _HoverableCardState extends State<_HoverableCard> {
+  bool _isHovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    BoxDecoration decoration;
+    if (_isHovered) {
+      // Apply hover effect
+      if (widget.decoration != null) {
+        decoration = BoxDecoration(
+          color: widget.isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+          borderRadius: widget.decoration!.borderRadius,
+          border: widget.decoration!.border,
+        );
+      } else {
+        decoration = BoxDecoration(
+          color: widget.isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+          borderRadius: BorderRadius.circular(4),
+        );
+      }
+    } else {
+      decoration = widget.decoration ??
+          BoxDecoration(
+            color: widget.baseColor,
+            borderRadius: BorderRadius.circular(4),
+          );
+    }
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _isHovered = true),
+      onExit: (_) => setState(() => _isHovered = false),
+      child: InkWell(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: double.infinity,
+          constraints: const BoxConstraints(
+            minHeight: 28,
+          ),
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+          decoration: decoration,
+          child: widget.child,
+        ),
+      ),
+    );
   }
 }
