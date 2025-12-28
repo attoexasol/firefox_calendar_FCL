@@ -1,41 +1,15 @@
 import 'package:firefox_calendar/core/theme/app_colors.dart';
 import 'package:firefox_calendar/core/theme/app_text_styles.dart';
 import 'package:firefox_calendar/core/theme/app_theme.dart';
+import 'package:firefox_calendar/features/settings/controller/leave_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 /// Leave Application Widget
 /// Converted from React LeaveApplication component
 /// Complete implementation matching the provided screenshots
-class LeaveApplicationWidget extends StatefulWidget {
+class LeaveApplicationWidget extends GetView<LeaveController> {
   const LeaveApplicationWidget({super.key});
-
-  @override
-  State<LeaveApplicationWidget> createState() => _LeaveApplicationWidgetState();
-}
-
-class _LeaveApplicationWidgetState extends State<LeaveApplicationWidget> {
-  // Form controllers
-  final TextEditingController _startDateController = TextEditingController();
-  final TextEditingController _endDateController = TextEditingController();
-  final TextEditingController _reasonController = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    // Set placeholder text for date fields
-    _startDateController.text = 'dd----yyyy';
-    _endDateController.text = 'dd----yyyy';
-    _reasonController.text = 'Please provide a reason for your leave request...';
-  }
-
-  @override
-  void dispose() {
-    _startDateController.dispose();
-    _endDateController.dispose();
-    _reasonController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -199,16 +173,16 @@ class _LeaveApplicationWidgetState extends State<LeaveApplicationWidget> {
               Expanded(
                 child: _buildDateField(
                   'Start Date *',
-                  _startDateController,
                   isDark,
+                  isStartDate: true,
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: _buildDateField(
                   'End Date *',
-                  _endDateController,
                   isDark,
+                  isStartDate: false,
                 ),
               ),
             ],
@@ -219,13 +193,31 @@ class _LeaveApplicationWidgetState extends State<LeaveApplicationWidget> {
           // Reason field
           _buildReasonField(isDark),
 
+          // Error message
+          Obx(() {
+            if (controller.errorMessage.value.isNotEmpty) {
+              return Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  controller.errorMessage.value,
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: Colors.red,
+                  ),
+                ),
+              );
+            }
+            return const SizedBox.shrink();
+          }),
+
           const SizedBox(height: 20),
 
           // Submit button
-          SizedBox(
+          Obx(() => SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _handleSubmitLeaveRequest,
+              onPressed: controller.isSubmitting.value
+                  ? null
+                  : () => controller.submitLeaveApplication(),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryLight, // Orange/red color from screenshot
                 foregroundColor: AppColors.primaryForegroundLight,
@@ -234,69 +226,93 @@ class _LeaveApplicationWidgetState extends State<LeaveApplicationWidget> {
                   borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                 ),
                 elevation: 0,
+                disabledBackgroundColor: AppColors.primaryLight.withValues(alpha: 0.6),
               ),
-              child: Text(
-                'Submit Leave Request',
-                style: AppTextStyles.labelLarge.copyWith(
-                  color: AppColors.primaryForegroundLight,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+              child: controller.isSubmitting.value
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Submitting...',
+                          style: AppTextStyles.labelLarge.copyWith(
+                            color: AppColors.primaryForegroundLight,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    )
+                  : Text(
+                      'Submit Leave Request',
+                      style: AppTextStyles.labelLarge.copyWith(
+                        color: AppColors.primaryForegroundLight,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
             ),
-          ),
+          )),
         ],
       ),
     );
   }
 
   /// Build date input field
-  Widget _buildDateField(String label, TextEditingController controller, bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: AppTextStyles.labelMedium.copyWith(
-            color: isDark
-                ? AppColors.foregroundDark
-                : AppColors.foregroundLight,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          height: 48,
-          decoration: BoxDecoration(
-            color: isDark 
-                ? AppColors.inputBackgroundDark
-                : AppColors.inputBackgroundLight,
-            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-            border: Border.all(
-              color: isDark ? AppColors.borderDark : AppColors.borderLight,
+  Widget _buildDateField(String label, bool isDark, {required bool isStartDate}) {
+    return Obx(() {
+      final date = isStartDate ? controller.startDate.value : controller.endDate.value;
+      final displayText = controller.formatDateForDisplay(date);
+      
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: AppTextStyles.labelMedium.copyWith(
+              color: isDark
+                  ? AppColors.foregroundDark
+                  : AppColors.foregroundLight,
+              fontWeight: FontWeight.w500,
             ),
           ),
-          child: TextField(
-            controller: controller,
-            onTap: () => _handleDateFieldTap(controller),
-            readOnly: true,
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: controller.text == 'dd----yyyy'
-                  ? (isDark ? AppColors.mutedForegroundDark : AppColors.mutedForegroundLight)
-                  : (isDark ? AppColors.foregroundDark : AppColors.foregroundLight),
+          const SizedBox(height: 8),
+          Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: isDark 
+                  ? AppColors.inputBackgroundDark
+                  : AppColors.inputBackgroundLight,
+              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+              border: Border.all(
+                color: isDark ? AppColors.borderDark : AppColors.borderLight,
+              ),
             ),
-            decoration: InputDecoration(
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              hintStyle: AppTextStyles.bodyMedium.copyWith(
-                color: isDark 
-                    ? AppColors.mutedForegroundDark
-                    : AppColors.mutedForegroundLight,
+            child: InkWell(
+              onTap: () => _handleDateFieldTap(isStartDate),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  displayText,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: displayText == 'dd----yyyy'
+                        ? (isDark ? AppColors.mutedForegroundDark : AppColors.mutedForegroundLight)
+                        : (isDark ? AppColors.foregroundDark : AppColors.foregroundLight),
+                  ),
+                ),
               ),
             ),
           ),
-        ),
-      ],
-    );
+        ],
+      );
+    });
   }
 
   /// Build reason text area field
@@ -324,25 +340,37 @@ class _LeaveApplicationWidgetState extends State<LeaveApplicationWidget> {
               color: isDark ? AppColors.borderDark : AppColors.borderLight,
             ),
           ),
-          child: TextField(
-            controller: _reasonController,
-            onTap: () => _handleReasonFieldTap(),
-            maxLines: 4,
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: _reasonController.text == 'Please provide a reason for your leave request...'
-                  ? (isDark ? AppColors.mutedForegroundDark : AppColors.mutedForegroundLight)
-                  : (isDark ? AppColors.foregroundDark : AppColors.foregroundLight),
-            ),
-            decoration: InputDecoration(
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.all(12),
-              hintStyle: AppTextStyles.bodyMedium.copyWith(
-                color: isDark 
-                    ? AppColors.mutedForegroundDark
-                    : AppColors.mutedForegroundLight,
+          child: Obx(() {
+            final reasonText = controller.reason.value;
+            final isPlaceholder = reasonText.isEmpty || 
+                reasonText == 'Please provide a reason for your leave request...';
+            
+            return TextField(
+              controller: TextEditingController(text: isPlaceholder ? '' : reasonText),
+              onTap: () {
+                if (isPlaceholder) {
+                  controller.setReason('');
+                }
+              },
+              onChanged: (value) => controller.setReason(value),
+              maxLines: 4,
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: isPlaceholder
+                    ? (isDark ? AppColors.mutedForegroundDark : AppColors.mutedForegroundLight)
+                    : (isDark ? AppColors.foregroundDark : AppColors.foregroundLight),
               ),
-            ),
-          ),
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.all(12),
+                hintText: 'Please provide a reason for your leave request...',
+                hintStyle: AppTextStyles.bodyMedium.copyWith(
+                  color: isDark 
+                      ? AppColors.mutedForegroundDark
+                      : AppColors.mutedForegroundLight,
+                ),
+              ),
+            );
+          }),
         ),
       ],
     );
@@ -393,90 +421,24 @@ class _LeaveApplicationWidgetState extends State<LeaveApplicationWidget> {
   }
 
   /// Handle date field tap
-  void _handleDateFieldTap(TextEditingController controller) {
-    // Clear placeholder if it's still there
-    if (controller.text == 'dd----yyyy') {
-      controller.clear();
-    }
+  void _handleDateFieldTap(bool isStartDate) {
+    final currentDate = isStartDate ? controller.startDate.value : controller.endDate.value;
+    final initialDate = currentDate ?? DateTime.now();
     
     // Show date picker
     showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
+      context: Get.context!,
+      initialDate: initialDate,
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     ).then((date) {
       if (date != null) {
-        // Format date to match dd----yyyy pattern but with actual date
-        final formattedDate = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-        controller.text = formattedDate;
-      } else if (controller.text.isEmpty) {
-        // Restore placeholder if no date selected
-        controller.text = 'dd----yyyy';
+        if (isStartDate) {
+          controller.setStartDate(date);
+        } else {
+          controller.setEndDate(date);
+        }
       }
     });
-  }
-
-  /// Handle reason field tap
-  void _handleReasonFieldTap() {
-    if (_reasonController.text == 'Please provide a reason for your leave request...') {
-      _reasonController.clear();
-    }
-  }
-
-  /// Handle submit leave request
-  void _handleSubmitLeaveRequest() {
-    // Validate form
-    if (_startDateController.text == 'dd----yyyy' || _startDateController.text.isEmpty) {
-      Get.snackbar(
-        'Validation Error',
-        'Please select a start date',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.shade100,
-        colorText: Colors.red.shade900,
-        duration: const Duration(seconds: 2),
-      );
-      return;
-    }
-
-    if (_endDateController.text == 'dd----yyyy' || _endDateController.text.isEmpty) {
-      Get.snackbar(
-        'Validation Error',
-        'Please select an end date',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.shade100,
-        colorText: Colors.red.shade900,
-        duration: const Duration(seconds: 2),
-      );
-      return;
-    }
-
-    if (_reasonController.text == 'Please provide a reason for your leave request...' || 
-        _reasonController.text.trim().isEmpty) {
-      Get.snackbar(
-        'Validation Error',
-        'Please provide a reason for your leave request',
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: Colors.red.shade100,
-        colorText: Colors.red.shade900,
-        duration: const Duration(seconds: 2),
-      );
-      return;
-    }
-
-    // Show success message (placeholder for actual submission)
-    Get.snackbar(
-      'Success',
-      'Leave request submitted successfully',
-      snackPosition: SnackPosition.BOTTOM,
-      backgroundColor: Colors.green.shade100,
-      colorText: Colors.green.shade900,
-      duration: const Duration(seconds: 3),
-    );
-
-    // Reset form
-    _startDateController.text = 'dd----yyyy';
-    _endDateController.text = 'dd----yyyy';
-    _reasonController.text = 'Please provide a reason for your leave request...';
   }
 }

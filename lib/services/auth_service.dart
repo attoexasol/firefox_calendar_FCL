@@ -32,6 +32,7 @@ class AuthService {
   static const String getUserHoursEndpoint = '$baseUrl/all/user_hours'; // Get user work hours entries
   static const String getCalendarUserHoursEndpoint = '$baseUrl/calander/user_hours'; // Get calendar work hours (for overlay)
   static const String dashboardSummaryEndpoint = '$baseUrl/dashboard/summary'; // Get dashboard summary (approved hours only)
+  static const String createLeaveApplicationEndpoint = '$baseUrl/create/user_leave_applications'; // Create leave application
   
   // =========================================================
   // DEPENDENCIES
@@ -1646,6 +1647,85 @@ class AuthService {
         'success': false,
         'message': 'Network error. Please check your connection.',
         'data': {},
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// Create leave application
+  /// Parameters: apiToken, startTime (YYYY-MM-DD HH:mm:ss), endTime (YYYY-MM-DD HH:mm:ss), reason
+  /// Returns: Map with success status and message
+  Future<Map<String, dynamic>> createLeaveApplication({
+    required String apiToken,
+    required String startTime,
+    required String endTime,
+    required String reason,
+  }) async {
+    try {
+      print('📝 [AuthService] Creating leave application...');
+      print('═══════════════════════════════════════════════════════════');
+      print('📍 URL: $createLeaveApplicationEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   api_token: ${apiToken.substring(0, 20)}...');
+      print('   start_time: $startTime');
+      print('   end_time: $endTime');
+      print('   reason: $reason');
+
+      final requestData = {
+        'api_token': apiToken,
+        'start_time': startTime,
+        'end_time': endTime,
+        'reason': reason,
+      };
+
+      final response = await http.post(
+        Uri.parse(createLeaveApplicationEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        print('✅ [AuthService] Create Leave Application response status: ${response.statusCode}');
+        
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'Leave application submitted successfully',
+          'data': responseData['data'],
+        };
+      } else if (response.statusCode == 401) {
+        print('❌ [AuthService] Create Leave Application failed: 401 Unauthorized');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Authentication failed. Please login again.',
+          'requiresAuth': true,
+        };
+      } else {
+        print('❌ [AuthService] Create Leave Application failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to submit leave application',
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Create Leave Application error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
         'error': e.toString(),
       };
     }

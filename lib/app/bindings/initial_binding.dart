@@ -7,6 +7,7 @@ import 'package:firefox_calendar/features/dashboard/controller/dashboard_control
 import 'package:firefox_calendar/features/hours/controller/hours_controller.dart';
 import 'package:firefox_calendar/features/payroll/controller/payroll_controller.dart';
 import 'package:firefox_calendar/features/profile/controller/edit_profile_controller.dart';
+import 'package:firefox_calendar/features/settings/controller/leave_controller.dart';
 import 'package:firefox_calendar/features/settings/controller/settings_controller.dart';
 import 'package:get/get.dart';
 
@@ -50,6 +51,12 @@ class InitialBinding extends Bindings {
     // Edit Profile Controller for separate edit profile screen
     Get.lazyPut<EditProfileController>(
       () => EditProfileController(),
+      fenix: true,
+    );
+
+    // Leave Controller for leave application
+    Get.lazyPut<LeaveController>(
+      () => LeaveController(),
       fenix: true,
     );
   }
