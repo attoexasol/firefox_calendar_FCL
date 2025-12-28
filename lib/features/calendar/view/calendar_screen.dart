@@ -4,6 +4,7 @@ import 'package:firefox_calendar/core/widgets/bottom_nav.dart';
 import 'package:firefox_calendar/core/widgets/top_bar.dart';
 import 'package:firefox_calendar/features/calendar/controller/calendar_controller.dart';
 import 'package:firefox_calendar/features/calendar/controller/create_event_controller.dart';
+import 'package:firefox_calendar/features/calendar/view/cell_cards_modal.dart';
 import 'package:firefox_calendar/features/calendar/view/event_details_dialog.dart';
 import 'package:firefox_calendar/features/calendar/view/hour_details_dialog.dart';
 import 'package:firefox_calendar/routes/app_routes.dart';
@@ -1021,7 +1022,9 @@ class CalendarScreen extends GetView<CalendarController> {
 
                         return Container(
                           width: 150,
-                          height: 80,
+                          constraints: const BoxConstraints(
+                            minHeight: 80,
+                          ),
                           clipBehavior: Clip.hardEdge,
                           decoration: BoxDecoration(
                             color: isDark
@@ -1040,7 +1043,6 @@ class CalendarScreen extends GetView<CalendarController> {
                           child: Builder(
                             builder: (context) {
                               // WORK HOURS OVERLAY: Get approved work hours for this user and date
-                              // Work hours are rendered as light background blocks AND as clickable cards
                               final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
                               
                               // Filter work hours that start in this hour slot (for card display)
@@ -1060,13 +1062,11 @@ class CalendarScreen extends GetView<CalendarController> {
                                 final logoutHour = int.parse(logoutParts[0]);
                                 final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
                                 
-                                // Convert to minutes for comparison
                                 final loginMinutes = loginHour * 60 + loginMin;
                                 final logoutMinutes = logoutHour * 60 + logoutMin;
                                 final hourStartMinutes = hour * 60;
                                 final hourEndMinutes = (hour + 1) * 60;
                                 
-                                // Work hour overlaps this hour slot if it starts before hour ends AND ends after hour starts
                                 if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
                                   hasWorkHourInThisSlot = true;
                                   break;
@@ -1080,212 +1080,16 @@ class CalendarScreen extends GetView<CalendarController> {
                                 return startHour == hour;
                               }).toList();
                               
-                              // Calculate equal height for all items (events + hour cards) in this hour
-                              // Hour box: 80px, padding: 4px all sides = 8px total, so available: 72px
-                              // Account for margins between items: (count - 1) * margin
-                              // Add larger buffer (2px) to prevent overflow from text rendering
-                              final totalItemsCount = hourEvents.length + hourWorkHours.length;
-                              final marginBetween = 2.0;
-                              final availableHeight = 70.0; // 80 - 8 (padding) - 2 (buffer)
-                              final totalMargins = totalItemsCount > 1 ? (totalItemsCount - 1) * marginBetween : 0.0;
-                              final equalHeight = totalItemsCount > 0 
-                                  ? (availableHeight - totalMargins) / totalItemsCount 
-                                  : 0.0;
-                              
-                              // Use Stack to layer work hours (background) and cards (foreground)
-                              // Work hours appear as light background blocks
-                              // Hour cards and Events appear on top of work hours
-                              return Stack(
-                                children: [
-                                  // WORK HOURS BACKGROUND BLOCK
-                                  // Render work hour as light background if it spans this hour slot
-                                  if (hasWorkHourInThisSlot)
-                                    Positioned.fill(
-                                      child: Container(
-                                        decoration: BoxDecoration(
-                                          // Light green for approved work hours (subtle background)
-                                          color: isDark
-                                              ? const Color(0xFF166534).withValues(alpha: 0.15) // Dark mode: dark green with low opacity
-                                              : const Color(0xFFD1FAE5).withValues(alpha: 0.6), // Light mode: light green
-                                          borderRadius: BorderRadius.circular(2),
-                                        ),
-                                      ),
-                                    ),
-                                  
-                                  // CARDS FOREGROUND (Hour Cards + Event Cards)
-                                  // Hour cards and Events are rendered on top of work hours
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // HOUR CARDS (rendered first, before events)
-                                      ...hourWorkHours.map((workHour) {
-                                        // Calculate hours worked
-                                        final loginParts = workHour.loginTime.split(':');
-                                        final logoutParts = workHour.logoutTime.split(':');
-                                        final loginHour = int.parse(loginParts[0]);
-                                        final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
-                                        final logoutHour = int.parse(logoutParts[0]);
-                                        final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
-                                        
-                                        final loginMinutes = loginHour * 60 + loginMin;
-                                        final logoutMinutes = logoutHour * 60 + logoutMin;
-                                        final totalMinutes = logoutMinutes - loginMinutes;
-                                        final totalHours = totalMinutes / 60.0;
-
-                                        // Format time for display
-                                        String formatTime(String timeStr) {
-                                          final parts = timeStr.split(':');
-                                          if (parts.length >= 2) {
-                                            final h = int.parse(parts[0]);
-                                            final m = parts[1];
-                                            final period = h >= 12 ? 'PM' : 'AM';
-                                            final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-                                            return '$displayHour:$m $period';
-                                          }
-                                          return timeStr;
-                                        }
-
-                                        // Hour card color (distinct from event cards)
-                                        final hourCardColor = isDark
-                                            ? Colors.blue.withValues(alpha: 0.3)
-                                            : Colors.blue.withValues(alpha: 0.2);
-                                        final hourTextColor = isDark
-                                            ? Colors.blue.shade200
-                                            : Colors.blue.shade900;
-
-                                        return InkWell(
-                                          onTap: () => controller.openWorkHourDetail(workHour),
-                                          child: Container(
-                                            width: double.infinity,
-                                            height: equalHeight.clamp(30.0, 72.0),
-                                            margin: EdgeInsets.only(
-                                              bottom: (hourWorkHours.indexOf(workHour) < hourWorkHours.length - 1 || hourEvents.isNotEmpty)
-                                                  ? marginBetween
-                                                  : 0,
-                                            ),
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: hourCardColor,
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(
-                                                color: isDark
-                                                    ? Colors.blue.withValues(alpha: 0.5)
-                                                    : Colors.blue.withValues(alpha: 0.3),
-                                                width: 1,
-                                              ),
-                                            ),
-                                            child: SizedBox(
-                                              height: double.infinity,
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Row(
-                                                    children: [
-                                                      Icon(
-                                                        Icons.access_time,
-                                                        size: 12,
-                                                        color: hourTextColor,
-                                                      ),
-                                                      const SizedBox(width: 4),
-                                                      Flexible(
-                                                        child: Text(
-                                                          '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
-                                                          style: AppTextStyles.labelSmall.copyWith(
-                                                            color: hourTextColor,
-                                                            fontWeight: FontWeight.w600,
-                                                            fontSize: 10,
-                                                          ),
-                                                          maxLines: 1,
-                                                          overflow: TextOverflow.ellipsis,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    '${totalHours.toStringAsFixed(1)}h',
-                                                    style: AppTextStyles.labelSmall.copyWith(
-                                                      fontSize: 9,
-                                                      color: hourTextColor.withValues(alpha: 0.9),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      }),
-                                      
-                                      // EVENT CARDS (rendered after hour cards)
-                                      ...hourEvents.map((meeting) {
-                                        // Use meeting creator for color (user-wise color coding)
-                                        final userForColor = meeting.creator;
-                                        // Work hours use distinct color, events use event color
-                                        final color = meeting.category == 'work_hour'
-                                            ? controller.getWorkHourColorForUser(userForColor, isDark)
-                                            : _getEventColorForUser(meeting, userForColor, isDark);
-                                        final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
-
-                                        // Equal size for all events in the same hour
-                                        return InkWell(
-                                          onTap: () {
-                                            // Check category: work_hour → openWorkHourDetail, else openMeetingDetail
-                                            if (meeting.category == 'work_hour') {
-                                              controller.openWorkHourDetail(meeting);
-                                            } else {
-                                              controller.openMeetingDetail(meeting);
-                                            }
-                                          },
-                                          child: Container(
-                                            width: double.infinity, // Full width of parent (150px)
-                                            height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
-                                            margin: EdgeInsets.only(
-                                              bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0,
-                                            ),
-                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                                            decoration: BoxDecoration(
-                                              color: color,
-                                              borderRadius: BorderRadius.circular(4),
-                                            ),
-                                            child: SizedBox(
-                                              height: double.infinity,
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                mainAxisAlignment: MainAxisAlignment.center,
-                                                children: [
-                                                  Flexible(
-                                                    child: Text(
-                                                      meeting.title,
-                                                      style: AppTextStyles.labelSmall.copyWith(
-                                                        color: textColor,
-                                                        fontWeight: FontWeight.w600,
-                                                        fontSize: 11,
-                                                      ),
-                                                      maxLines: 1,
-                                                      overflow: TextOverflow.ellipsis,
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 2),
-                                                  Text(
-                                                    meeting.startTime,
-                                                    style: AppTextStyles.labelSmall.copyWith(
-                                                      fontSize: 9,
-                                                      color: textColor.withValues(alpha: 0.9),
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ),
-                                        );
-                                      }).toList(),
-                                    ],
-                                  ),
-                                ],
+                              // Use helper method to build cell content with overflow handling
+                              return _buildCellContent(
+                                context: context,
+                                meetings: hourEvents,
+                                workHours: hourWorkHours,
+                                dateStr: dateStr,
+                                userEmail: user,
+                                hour: hour,
+                                isDark: isDark,
+                                hasWorkHourBackground: hasWorkHourInThisSlot,
                               );
                             },
                           ),
@@ -1343,6 +1147,312 @@ class CalendarScreen extends GetView<CalendarController> {
   Color _getEventTextColorForUser(Meeting meeting, String user, bool isDark) {
     // Use the controller's event type-based text color logic
     return controller.getEventTextColor(meeting, isDark);
+  }
+
+  /// Build calendar cell content with overflow handling
+  /// Combines meetings and work hours, sorts by startTime, and handles overflow
+  Widget _buildCellContent({
+    required BuildContext context,
+    required List<Meeting> meetings,
+    required List<WorkHour> workHours,
+    required String dateStr,
+    required String userEmail,
+    required int hour,
+    required bool isDark,
+    required bool hasWorkHourBackground,
+  }) {
+    // Combine all items and sort by startTime
+    final allItems = <_CellItem>[];
+    
+    // Add meetings
+    for (var meeting in meetings) {
+      allItems.add(_CellItem(
+        type: _CellItemType.meeting,
+        meeting: meeting,
+        startTime: meeting.startTime,
+      ));
+    }
+    
+    // Add work hours
+    for (var workHour in workHours) {
+      allItems.add(_CellItem(
+        type: _CellItemType.workHour,
+        workHour: workHour,
+        startTime: workHour.loginTime,
+      ));
+    }
+    
+    // Sort by startTime
+    allItems.sort((a, b) {
+      final aParts = a.startTime.split(':');
+      final bParts = b.startTime.split(':');
+      final aHour = int.parse(aParts[0]);
+      final aMin = aParts.length > 1 ? int.parse(aParts[1]) : 0;
+      final bHour = int.parse(bParts[0]);
+      final bMin = bParts.length > 1 ? int.parse(bParts[1]) : 0;
+      
+      if (aHour != bHour) return aHour.compareTo(bHour);
+      return aMin.compareTo(bMin);
+    });
+
+    // Determine how many items to show (2 max to prevent overflow)
+    const maxVisibleItems = 2;
+    final visibleItems = allItems.take(maxVisibleItems).toList();
+    final remainingCount = allItems.length - visibleItems.length;
+    final hasOverflow = remainingCount > 0;
+
+    return Stack(
+      children: [
+        // WORK HOURS BACKGROUND BLOCK (if any work hour spans this hour)
+        if (hasWorkHourBackground)
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: isDark
+                    ? const Color(0xFF166534).withValues(alpha: 0.15)
+                    : const Color(0xFFD1FAE5).withValues(alpha: 0.6),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+        
+        // CARDS FOREGROUND (content-driven Column)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Visible items
+            ...visibleItems.map((item) {
+              if (item.type == _CellItemType.meeting) {
+                return _buildMeetingCard(
+                  context,
+                  item.meeting!,
+                  controller,
+                  isDark,
+                );
+              } else {
+                return _buildWorkHourCard(
+                  context,
+                  item.workHour!,
+                  controller,
+                  isDark,
+                );
+              }
+            }),
+            
+            // Overflow indicator
+            if (hasOverflow)
+              InkWell(
+                onTap: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => CellCardsModal(
+                      meetings: meetings,
+                      workHours: workHours,
+                      dateStr: dateStr,
+                      userEmail: userEmail,
+                      hour: hour,
+                      isDark: isDark,
+                    ),
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.mutedDark.withValues(alpha: 0.5)
+                        : AppColors.mutedLight.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: isDark
+                          ? AppColors.borderDark
+                          : AppColors.borderLight,
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    '+$remainingCount more',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: isDark
+                          ? AppColors.foregroundDark
+                          : AppColors.foregroundLight,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  /// Build meeting card widget
+  Widget _buildMeetingCard(
+    BuildContext context,
+    Meeting meeting,
+    CalendarController controller,
+    bool isDark,
+  ) {
+    final userForColor = meeting.creator;
+    final color = meeting.category == 'work_hour'
+        ? controller.getWorkHourColorForUser(userForColor, isDark)
+        : _getEventColorForUser(meeting, userForColor, isDark);
+    final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
+
+    return InkWell(
+      onTap: () {
+        if (meeting.category == 'work_hour') {
+          controller.openWorkHourDetail(meeting);
+        } else {
+          controller.openMeetingDetail(meeting);
+        }
+      },
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(
+          minHeight: 28,
+        ),
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(4),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              meeting.title,
+              style: AppTextStyles.labelSmall.copyWith(
+                color: textColor,
+                fontWeight: FontWeight.w600,
+                fontSize: 10,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 1),
+            Text(
+              meeting.startTime,
+              style: AppTextStyles.labelSmall.copyWith(
+                fontSize: 8,
+                color: textColor.withValues(alpha: 0.9),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Build work hour card widget
+  Widget _buildWorkHourCard(
+    BuildContext context,
+    WorkHour workHour,
+    CalendarController controller,
+    bool isDark,
+  ) {
+    final loginParts = workHour.loginTime.split(':');
+    final logoutParts = workHour.logoutTime.split(':');
+    final loginHour = int.parse(loginParts[0]);
+    final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+    final logoutHour = int.parse(logoutParts[0]);
+    final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+    
+    final loginMinutes = loginHour * 60 + loginMin;
+    final logoutMinutes = logoutHour * 60 + logoutMin;
+    final totalMinutes = logoutMinutes - loginMinutes;
+    final totalHours = totalMinutes / 60.0;
+
+    String formatTime(String timeStr) {
+      final parts = timeStr.split(':');
+      if (parts.length >= 2) {
+        final h = int.parse(parts[0]);
+        final m = parts[1];
+        final period = h >= 12 ? 'PM' : 'AM';
+        final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
+        return '$displayHour:$m $period';
+      }
+      return timeStr;
+    }
+
+    final hourCardColor = isDark
+        ? Colors.blue.withValues(alpha: 0.3)
+        : Colors.blue.withValues(alpha: 0.2);
+    final hourTextColor = isDark
+        ? Colors.blue.shade200
+        : Colors.blue.shade900;
+
+    return InkWell(
+      onTap: () => controller.openWorkHourDetail(workHour),
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(
+          minHeight: 28,
+        ),
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+        decoration: BoxDecoration(
+          color: hourCardColor,
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: isDark
+                ? Colors.blue.withValues(alpha: 0.5)
+                : Colors.blue.withValues(alpha: 0.3),
+            width: 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.access_time,
+                  size: 10,
+                  color: hourTextColor,
+                ),
+                const SizedBox(width: 3),
+                Flexible(
+                  child: Text(
+                    '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: hourTextColor,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 9,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 1),
+            Text(
+              '${totalHours.toStringAsFixed(1)}h',
+              style: AppTextStyles.labelSmall.copyWith(
+                fontSize: 8,
+                color: hourTextColor.withValues(alpha: 0.9),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// Build day view
@@ -1531,7 +1641,9 @@ class CalendarScreen extends GetView<CalendarController> {
             final timeLabel = _formatHour(hour);
 
             return Container(
-              height: 80,
+              constraints: const BoxConstraints(
+                minHeight: 80,
+              ),
               decoration: BoxDecoration(
                 color: isDark
                     ? AppColors.backgroundDark
@@ -1546,11 +1658,14 @@ class CalendarScreen extends GetView<CalendarController> {
                 ),
               ),
               child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Time Label
                   Container(
                     width: 80,
-                    height: 80,
+                    constraints: const BoxConstraints(
+                      minHeight: 80,
+                    ),
                     alignment: Alignment.topCenter,
                     padding: const EdgeInsets.only(top: 8),
                     decoration: BoxDecoration(
@@ -1586,7 +1701,9 @@ class CalendarScreen extends GetView<CalendarController> {
 
                     return Container(
                       width: 150,
-                      height: 80,
+                      constraints: const BoxConstraints(
+                        minHeight: 80,
+                      ),
                       clipBehavior: Clip.hardEdge,
                       decoration: BoxDecoration(
                         color: isDark
@@ -1604,80 +1721,48 @@ class CalendarScreen extends GetView<CalendarController> {
                       padding: const EdgeInsets.all(4),
                       child: Builder(
                         builder: (context) {
-                          // Calculate equal height for all events in this hour
-                          // Hour box: 80px, padding: 4px all sides = 8px total, so available: 72px
-                          // Add larger buffer (2px) to prevent overflow from text rendering
-                          final eventCount = slotMeetings.length;
-                          final marginBetween = 4.0;
-                          final availableHeight = 70.0; // 80 - 8 (padding) - 2 (buffer)
-                          final totalMargins = eventCount > 1 ? (eventCount - 1) * marginBetween : 0.0;
-                          final equalHeight = eventCount > 0 
-                              ? (availableHeight - totalMargins) / eventCount 
-                              : 0.0;
+                          // Get work hours for this date (for day view without user columns)
+                          final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                          final userWorkHours = controller.getWorkHoursForUser('', dateStr); // Empty user for day view
                           
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: slotMeetings.map((meeting) {
-                              // Use meeting creator for color (user-wise)
-                              final userForColor = meeting.creator;
-                              // Work hours use distinct color, events use event color
-                              final color = meeting.category == 'work_hour'
-                                  ? controller.getWorkHourColorForUser(userForColor, isDark)
-                                  : _getEventColorForUser(meeting, userForColor, isDark);
-                              final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
-
-                              return InkWell(
-                                onTap: () {
-                                  // Check category: work_hour → openWorkHourDetail, else openMeetingDetail
-                                  if (meeting.category == 'work_hour') {
-                                    controller.openWorkHourDetail(meeting);
-                                  } else {
-                                    controller.openMeetingDetail(meeting);
-                                  }
-                                },
-                                child: Container(
-                                  width: double.infinity, // Full width of parent
-                                  height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
-                                  margin: EdgeInsets.only(bottom: slotMeetings.indexOf(meeting) < slotMeetings.length - 1 ? marginBetween : 0),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: color,
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: SizedBox(
-                                    height: double.infinity,
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            meeting.title,
-                                            style: AppTextStyles.labelSmall.copyWith(
-                                              color: textColor,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 12,
-                                            ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          meeting.startTime,
-                                          style: AppTextStyles.labelSmall.copyWith(
-                                            fontSize: 10,
-                                            color: textColor.withValues(alpha: 0.9),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                          // Filter work hours that start in this hour slot
+                          final hourWorkHours = userWorkHours.where((workHour) {
+                            final loginParts = workHour.loginTime.split(':');
+                            final loginHour = int.parse(loginParts[0]);
+                            return loginHour == hour;
+                          }).toList();
+                          
+                          // Check if any work hour spans this hour slot
+                          bool hasWorkHourInThisSlot = false;
+                          for (var workHour in userWorkHours) {
+                            final loginParts = workHour.loginTime.split(':');
+                            final logoutParts = workHour.logoutTime.split(':');
+                            final loginHour = int.parse(loginParts[0]);
+                            final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                            final logoutHour = int.parse(logoutParts[0]);
+                            final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                            
+                            final loginMinutes = loginHour * 60 + loginMin;
+                            final logoutMinutes = logoutHour * 60 + logoutMin;
+                            final hourStartMinutes = hour * 60;
+                            final hourEndMinutes = (hour + 1) * 60;
+                            
+                            if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
+                              hasWorkHourInThisSlot = true;
+                              break;
+                            }
+                          }
+                          
+                          // Use helper method to build cell content with overflow handling
+                          return _buildCellContent(
+                            context: context,
+                            meetings: slotMeetings,
+                            workHours: hourWorkHours,
+                            dateStr: dateStr,
+                            userEmail: '',
+                            hour: hour,
+                            isDark: isDark,
+                            hasWorkHourBackground: hasWorkHourInThisSlot,
                           );
                         },
                       ),
@@ -1994,7 +2079,9 @@ class CalendarScreen extends GetView<CalendarController> {
                       final timeLabel = _formatHour(hour);
 
                       return Container(
-                        height: 80,
+                        constraints: const BoxConstraints(
+                          minHeight: 80,
+                        ),
                         decoration: BoxDecoration(
                           color: isDark
                               ? AppColors.backgroundDark
@@ -2009,11 +2096,14 @@ class CalendarScreen extends GetView<CalendarController> {
                           ),
                         ),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             // Time Label
                             Container(
                               width: 80,
-                              height: 80,
+                              constraints: const BoxConstraints(
+                                minHeight: 80,
+                              ),
                               alignment: Alignment.topCenter,
                               padding: const EdgeInsets.only(top: 8),
                               decoration: BoxDecoration(
@@ -2074,7 +2164,9 @@ class CalendarScreen extends GetView<CalendarController> {
 
                       return Container(
                         width: 150,
-                        height: 80,
+                        constraints: const BoxConstraints(
+                          minHeight: 80,
+                        ),
                         clipBehavior: Clip.hardEdge,
                         decoration: BoxDecoration(
                           color: isDark
@@ -2093,7 +2185,6 @@ class CalendarScreen extends GetView<CalendarController> {
                         child: Builder(
                           builder: (context) {
                             // WORK HOURS OVERLAY: Get approved work hours for this user and date
-                            // Work hours are rendered as light background blocks AND as clickable cards
                             final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
                             
                             // Filter work hours that start in this hour slot (for card display)
@@ -2114,22 +2205,18 @@ class CalendarScreen extends GetView<CalendarController> {
                               final logoutHour = int.parse(logoutParts[0]);
                               final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
                               
-                              // Convert to minutes for comparison
                               final loginMinutes = loginHour * 60 + loginMin;
                               final logoutMinutes = logoutHour * 60 + logoutMin;
                               final hourStartMinutes = hour * 60;
                               final hourEndMinutes = (hour + 1) * 60;
                               
-                              // Work hour overlaps this hour slot if it starts before hour ends AND ends after hour starts
                               if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
                                 hasWorkHourInThisSlot = true;
                                 
-                                // Calculate position and height within this hour slot
                                 final blockStartMinutes = loginMinutes > hourStartMinutes ? loginMinutes : hourStartMinutes;
                                 final blockEndMinutes = logoutMinutes < hourEndMinutes ? logoutMinutes : hourEndMinutes;
                                 
-                                // Calculate top offset and height as percentage of hour slot (80px)
-                                final hourDuration = 60.0; // minutes in an hour
+                                final hourDuration = 60.0;
                                 final topOffset = ((blockStartMinutes - hourStartMinutes) / hourDuration) * 80.0;
                                 final blockHeight = ((blockEndMinutes - blockStartMinutes) / hourDuration) * 80.0;
                                 
@@ -2143,35 +2230,15 @@ class CalendarScreen extends GetView<CalendarController> {
                             
                             // Filter events for this hour
                             final hourEvents = userMeetings.where((meeting) {
-                              // Only show event in the hour slot where it starts
-                              // This prevents duplicate rendering across multiple hours
                               final startParts = meeting.startTime.split(':');
                               final startHour = int.parse(startParts[0]);
-                              final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
-                              
-                              // Show event in the hour where it starts
-                              // For example: 09:10 starts in hour 9, 10:00 starts in hour 10
                               return startHour == hour;
                             }).toList();
                             
-                            // Calculate equal height for all items (events + hour cards) in this hour
-                            // Hour box: 80px, padding: 4px all sides = 8px total, so available: 72px
-                            // Add larger buffer (2px) to prevent overflow from text rendering
-                            final totalItemsCount = hourEvents.length + hourWorkHours.length;
-                            final marginBetween = 4.0;
-                            final availableHeight = 70.0; // 80 - 8 (padding) - 2 (buffer)
-                            final totalMargins = totalItemsCount > 1 ? (totalItemsCount - 1) * marginBetween : 0.0;
-                            final equalHeight = totalItemsCount > 0 
-                                ? (availableHeight - totalMargins) / totalItemsCount 
-                                : 0.0;
-                            
-                            // Use Stack to layer work hours (background) and cards (foreground)
-                            // Work hours appear as light background blocks
-                            // Hour cards and Events appear on top of work hours
+                            // Use Stack for background work hour blocks + content-driven cards
                             return Stack(
                               children: [
-                                // WORK HOURS BACKGROUND BLOCKS
-                                // Render work hours as spanning background blocks with per-user colors
+                                // WORK HOURS BACKGROUND BLOCKS (spanning blocks)
                                 ...workHourBlocks.map((block) {
                                   final workHour = block['workHour'] as WorkHour;
                                   final top = block['top'] as double;
@@ -2192,178 +2259,16 @@ class CalendarScreen extends GetView<CalendarController> {
                                   );
                                 }),
                                 
-                                // CARDS FOREGROUND (Hour Cards + Event Cards)
-                                // Hour cards and Events are rendered on top of work hours
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    // HOUR CARDS (rendered first, before events)
-                                    ...hourWorkHours.map((workHour) {
-                                      // Calculate hours worked
-                                      final loginParts = workHour.loginTime.split(':');
-                                      final logoutParts = workHour.logoutTime.split(':');
-                                      final loginHour = int.parse(loginParts[0]);
-                                      final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
-                                      final logoutHour = int.parse(logoutParts[0]);
-                                      final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
-                                      
-                                      final loginMinutes = loginHour * 60 + loginMin;
-                                      final logoutMinutes = logoutHour * 60 + logoutMin;
-                                      final totalMinutes = logoutMinutes - loginMinutes;
-                                      final totalHours = totalMinutes / 60.0;
-
-                                      // Format time for display
-                                      String formatTime(String timeStr) {
-                                        final parts = timeStr.split(':');
-                                        if (parts.length >= 2) {
-                                          final h = int.parse(parts[0]);
-                                          final m = parts[1];
-                                          final period = h >= 12 ? 'PM' : 'AM';
-                                          final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-                                          return '$displayHour:$m $period';
-                                        }
-                                        return timeStr;
-                                      }
-
-                                      // Hour card color (distinct from event cards)
-                                      final hourCardColor = isDark
-                                          ? Colors.blue.withValues(alpha: 0.3)
-                                          : Colors.blue.withValues(alpha: 0.2);
-                                      final hourTextColor = isDark
-                                          ? Colors.blue.shade200
-                                          : Colors.blue.shade900;
-
-                                      return InkWell(
-                                        onTap: () => controller.openWorkHourDetail(workHour),
-                                        child: Container(
-                                          width: double.infinity,
-                                          height: equalHeight.clamp(30.0, 72.0),
-                                          margin: EdgeInsets.only(
-                                            bottom: (hourWorkHours.indexOf(workHour) < hourWorkHours.length - 1 || hourEvents.isNotEmpty)
-                                                ? marginBetween
-                                                : 0,
-                                          ),
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: hourCardColor,
-                                            borderRadius: BorderRadius.circular(4),
-                                            border: Border.all(
-                                              color: isDark
-                                                  ? Colors.blue.withValues(alpha: 0.5)
-                                                  : Colors.blue.withValues(alpha: 0.3),
-                                              width: 1,
-                                            ),
-                                          ),
-                                          child: SizedBox(
-                                            height: double.infinity,
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              mainAxisSize: MainAxisSize.min,
-                                              mainAxisAlignment: MainAxisAlignment.center,
-                                              children: [
-                                                Row(
-                                                  children: [
-                                                    Icon(
-                                                      Icons.access_time,
-                                                      size: 12,
-                                                      color: hourTextColor,
-                                                    ),
-                                                    const SizedBox(width: 4),
-                                                    Flexible(
-                                                      child: Text(
-                                                        '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
-                                                        style: AppTextStyles.labelSmall.copyWith(
-                                                          color: hourTextColor,
-                                                          fontWeight: FontWeight.w600,
-                                                          fontSize: 11,
-                                                        ),
-                                                        maxLines: 1,
-                                                        overflow: TextOverflow.ellipsis,
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  '${totalHours.toStringAsFixed(1)}h',
-                                                  style: AppTextStyles.labelSmall.copyWith(
-                                                    fontSize: 9,
-                                                    color: hourTextColor.withValues(alpha: 0.9),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }),
-                                    
-                                    // EVENT CARDS (rendered after hour cards)
-                                    ...hourEvents.map((meeting) {
-                                    // Use meeting creator for color (user-wise color coding)
-                                    final userForColor = meeting.creator;
-                                    // Work hours use distinct color, events use event color
-                                    final color = meeting.category == 'work_hour'
-                                        ? controller.getWorkHourColorForUser(userForColor, isDark)
-                                        : _getEventColorForUser(meeting, userForColor, isDark);
-                                    final textColor = _getEventTextColorForUser(meeting, userForColor, isDark);
-
-                                    // Equal size for all events in the same hour
-                                    return InkWell(
-                                      onTap: () {
-                                        // Check category: work_hour → openWorkHourDetail, else openMeetingDetail
-                                        if (meeting.category == 'work_hour') {
-                                          controller.openWorkHourDetail(meeting);
-                                        } else {
-                                          controller.openMeetingDetail(meeting);
-                                        }
-                                      },
-                                      child: Container(
-                                        width: double.infinity, // Full width of parent
-                                        height: equalHeight.clamp(30.0, 72.0), // Equal height, min 30px, max 72px
-                                        margin: EdgeInsets.only(
-                                          bottom: hourEvents.indexOf(meeting) < hourEvents.length - 1 ? marginBetween : 0,
-                                        ),
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                        decoration: BoxDecoration(
-                                          color: color,
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: SizedBox(
-                                          height: double.infinity,
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            mainAxisSize: MainAxisSize.min,
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              Flexible(
-                                                child: Text(
-                                                  meeting.title,
-                                                  style: AppTextStyles.labelSmall.copyWith(
-                                                    color: textColor,
-                                                    fontWeight: FontWeight.w600,
-                                                    fontSize: 12,
-                                                  ),
-                                                  maxLines: 2,
-                                                  overflow: TextOverflow.ellipsis,
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                meeting.startTime,
-                                                style: AppTextStyles.labelSmall.copyWith(
-                                                  fontSize: 10,
-                                                  color: textColor.withValues(alpha: 0.9),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                  ],
+                                // CARDS FOREGROUND (content-driven)
+                                _buildCellContent(
+                                  context: context,
+                                  meetings: hourEvents,
+                                  workHours: hourWorkHours,
+                                  dateStr: dateStr,
+                                  userEmail: user,
+                                  hour: hour,
+                                  isDark: isDark,
+                                  hasWorkHourBackground: hasWorkHourInThisSlot,
                                 ),
                               ],
                             );
@@ -2509,6 +2414,26 @@ class CalendarScreen extends GetView<CalendarController> {
       ),
     );
   }
+}
+
+/// Helper class to combine meetings and work hours for sorting
+class _CellItem {
+  final _CellItemType type;
+  final Meeting? meeting;
+  final WorkHour? workHour;
+  final String startTime;
+
+  _CellItem({
+    required this.type,
+    this.meeting,
+    this.workHour,
+    required this.startTime,
+  });
+}
+
+enum _CellItemType {
+  meeting,
+  workHour,
 }
 
 /// Widget that listens to selectedMeeting changes and shows dialog
