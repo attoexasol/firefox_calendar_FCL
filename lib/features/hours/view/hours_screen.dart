@@ -49,22 +49,26 @@ class HoursScreen extends GetView<HoursController> {
             // Date Navigation Section
             _buildDateNavigation(context, isDark),
 
-            // Summary Card + Events + Work Logs
+            // Summary Card + Events + Work Logs (unified scroll)
             Expanded(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    // Summary Card
-                    _buildSummaryCard(isDark),
+                child: CustomScrollView(
+                  slivers: [
+                    // Summary Card (fixed at top)
+                    SliverToBoxAdapter(
+                      child: _buildSummaryCard(isDark),
+                    ),
                     
-                    const SizedBox(height: 16),
+                    const SliverToBoxAdapter(
+                      child: SizedBox(height: 16),
+                    ),
 
-                    // Calendar Events Section (if any)
-                    Obx(() => _buildCalendarEventsSection(isDark)),
+                    // Calendar Events Section (scrollable)
+                    Obx(() => _buildCalendarEventsSliver(isDark)),
 
-                    // Work Logs List
-                    Expanded(child: _buildWorkLogsList(isDark)),
+                    // Work Logs List (scrollable)
+                    _buildWorkLogsSliver(isDark),
                   ],
                 ),
               ),
@@ -334,47 +338,61 @@ class HoursScreen extends GetView<HoursController> {
     );
   }
 
-  /// Build Work Logs List - Card-based layout
+  /// Build Work Logs Sliver - Card-based layout
   /// Displays entries grouped by day/week/month based on selected range
   /// Controller handles filtering & grouping
-  Widget _buildWorkLogsList(bool isDark) {
+  Widget _buildWorkLogsSliver(bool isDark) {
     return Obx(() {
       // Get filtered work logs based on active tab (day/week/month)
       // Controller handles filtering & grouping
       final filteredLogs = controller.getFilteredWorkLogs();
       
       if (controller.isLoading.value) {
-        return const Center(
-          child: Padding(
-            padding: EdgeInsets.symmetric(vertical: 48),
-            child: CircularProgressIndicator(),
+        return SliverFillRemaining(
+          hasScrollBody: false,
+          child: const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 48),
+              child: CircularProgressIndicator(),
+            ),
           ),
         );
       }
       
       if (filteredLogs.isEmpty) {
-        return Center(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 48),
-            child: Text(
-              'No work hour entries found for this period',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: isDark
-                    ? AppColors.mutedForegroundDark
-                    : const Color(0xFF6B7280),
+        return SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 48),
+              child: Text(
+                'No work hour entries found for this period',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: isDark
+                      ? AppColors.mutedForegroundDark
+                      : const Color(0xFF6B7280),
+                ),
               ),
             ),
           ),
         );
       }
 
-      return ListView.separated(
-        itemCount: filteredLogs.length,
-        separatorBuilder: (context, index) => const SizedBox(height: 12),
-        itemBuilder: (context, index) {
-          final log = filteredLogs[index];
-          return _buildWorkLogCard(log, isDark);
-        },
+      return SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            if (index > 0) {
+              return Column(
+                children: [
+                  const SizedBox(height: 12),
+                  _buildWorkLogCard(filteredLogs[index], isDark),
+                ],
+              );
+            }
+            return _buildWorkLogCard(filteredLogs[index], isDark);
+          },
+          childCount: filteredLogs.length,
+        ),
       );
     });
   }
@@ -694,61 +712,72 @@ class HoursScreen extends GetView<HoursController> {
   // CALENDAR EVENTS SECTION
   // ============================================================
 
-  /// Build Calendar Events Section
+  /// Build Calendar Events Sliver
   /// Shows informational event cards above work hour cards
-  Widget _buildCalendarEventsSection(bool isDark) {
+  /// Returns a Sliver widget for unified scrolling
+  Widget _buildCalendarEventsSliver(bool isDark) {
     // Show loading state if events are loading
     if (controller.isLoadingEvents.value) {
-      return const SizedBox.shrink(); // Don't show loading indicator, just hide section
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
     
     // Show error state (optional - can be silent)
     if (controller.eventsError.value.isNotEmpty) {
       // Silently handle error - don't show error message to avoid cluttering UI
-      return const SizedBox.shrink();
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
     
     final filteredEvents = controller.getFilteredCalendarEvents();
     
     // Don't show section if no events
     if (filteredEvents.isEmpty) {
-      return const SizedBox.shrink();
+      return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Section Header
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text(
-            'Calendar Events',
-            style: AppTextStyles.labelLarge.copyWith(
-              color: isDark
-                  ? AppColors.foregroundDark
-                  : AppColors.foregroundLight,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ),
-        
-        // Event Cards List
-        ...filteredEvents.map((event) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: _buildEventCard(event, isDark),
-        )),
-        
-        // Separator between events and work hours
-        const SizedBox(height: 8),
-        Divider(
-          height: 1,
-          thickness: 1,
-          color: isDark 
-              ? AppColors.borderDark 
-              : AppColors.borderLight,
-        ),
-        const SizedBox(height: 16),
-      ],
+    return SliverList(
+      delegate: SliverChildBuilderDelegate(
+        (context, index) {
+          if (index == 0) {
+            // First item: Section Header
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text(
+                'Calendar Events',
+                style: AppTextStyles.labelLarge.copyWith(
+                  color: isDark
+                      ? AppColors.foregroundDark
+                      : AppColors.foregroundLight,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            );
+          } else if (index <= filteredEvents.length) {
+            // Event cards (index 1 to length)
+            final eventIndex = index - 1;
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: eventIndex < filteredEvents.length - 1 ? 12 : 8,
+              ),
+              child: _buildEventCard(filteredEvents[eventIndex], isDark),
+            );
+          } else {
+            // Last item: Separator after all events
+            return Column(
+              children: [
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: isDark 
+                      ? AppColors.borderDark 
+                      : AppColors.borderLight,
+                ),
+                const SizedBox(height: 16),
+              ],
+            );
+          }
+        },
+        childCount: filteredEvents.length + 2, // +1 for header, +1 for separator
+      ),
     );
   }
 
