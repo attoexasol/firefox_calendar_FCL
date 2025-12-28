@@ -33,6 +33,9 @@ class CalendarController extends GetxController {
   final RxBool isLoadingEventDetails = false.obs;
   final RxString eventDetailsError = ''.obs;
 
+  // Selected work hour for detail view
+  final Rx<WorkHour?> selectedWorkHour = Rx<WorkHour?>(null);
+
   // Create meeting modal state
   final RxBool showCreateMeeting = false.obs;
 
@@ -160,10 +163,14 @@ class CalendarController extends GetxController {
         // Store all meetings (for "Everyone" view)
         allMeetings.value = uniqueMeetings.values.toList();
         
+        // Convert approved work hours to Meeting objects and merge into allMeetings
+        // This allows work hours to be rendered using existing Meeting rendering logic
+        _mergeWorkHoursAsMeetings();
+        
         // Debug: Print all event dates
         print('📅 [CalendarController] All events dates:');
         for (var meeting in allMeetings) {
-          print('   - ${meeting.title}: ${meeting.date} ${meeting.startTime} (userId: ${meeting.userId})');
+          print('   - ${meeting.title}: ${meeting.date} ${meeting.startTime} (userId: ${meeting.userId}, category: ${meeting.category ?? 'event'})');
         }
         
         // Apply scope filter to update displayed meetings
@@ -410,16 +417,29 @@ class CalendarController extends GetxController {
         }
 
         // Map API response to WorkHour objects
-        // Filter to only include approved work hours
+        // Filter to only include approved work hours with both login and logout times
         final mappedHours = hoursList
             .map((hourData) => _mapWorkHourFromApi(hourData))
-            .where((hour) => hour != null && hour.status.toLowerCase() == 'approved')
+            .where((hour) => hour != null && 
+                           hour!.status.toLowerCase() == 'approved' &&
+                           hour.loginTime.isNotEmpty &&
+                           hour.logoutTime.isNotEmpty)
             .cast<WorkHour>()
             .toList();
 
         workHours.value = mappedHours;
 
         print('✅ [CalendarController] Fetched ${workHours.length} approved work hours');
+        
+        // Convert approved work hours to Meeting objects and merge into allMeetings
+        // This allows work hours to be rendered using existing Meeting rendering logic
+        // Note: This will be called after events are fetched, so work hours will be merged
+        // The merge happens in fetchAllEvents after events are loaded
+        // If events are already loaded, merge now
+        if (allMeetings.isNotEmpty) {
+          _mergeWorkHoursAsMeetings();
+          _applyScopeFilter();
+        }
       } else {
         print('⚠️ [CalendarController] Failed to fetch work hours: ${result['message']}');
         workHours.value = [];
@@ -532,6 +552,7 @@ class CalendarController extends GetxController {
 
   /// Get work hours for a specific user and date
   /// Used for rendering work hours overlay in calendar grid
+  /// Returns ONLY approved work hours with both login_time and logout_time
   List<WorkHour> getWorkHoursForUser(String userEmail, String dateStr) {
     return workHours.where((hour) {
       // Match by date
@@ -543,7 +564,121 @@ class CalendarController extends GetxController {
       } else {
         return hour.userEmail == userEmail;
       }
+    }).where((hour) {
+      // Additional filter: Only approved work hours with both login and logout times
+      return hour.status.toLowerCase() == 'approved' &&
+             hour.loginTime.isNotEmpty &&
+             hour.logoutTime.isNotEmpty;
     }).toList();
+  }
+
+  /// Convert approved WorkHour objects to Meeting objects
+  /// Merges them into allMeetings so they can be rendered using existing Meeting logic
+  /// Uses category = 'work_hour' to differentiate from regular events
+  void _mergeWorkHoursAsMeetings() {
+    if (workHours.isEmpty) {
+      // No work hours to merge
+      return;
+    }
+    
+    // Convert work hours to meetings
+    final workHourMeetings = workHours.map((workHour) {
+      return _convertWorkHourToMeeting(workHour);
+    }).where((meeting) => meeting != null).cast<Meeting>().toList();
+    
+    if (workHourMeetings.isEmpty) {
+      return;
+    }
+    
+    // Remove existing work hour meetings (to avoid duplicates on re-merge)
+    allMeetings.removeWhere((m) => m.id.startsWith('work_hour_'));
+    
+    // Add all work hour meetings
+    allMeetings.addAll(workHourMeetings);
+    
+    print('✅ [CalendarController] Merged ${workHourMeetings.length} work hours as meetings');
+    print('   Total meetings (events + work hours): ${allMeetings.length}');
+  }
+
+  /// Convert a WorkHour object to a Meeting object
+  /// Uses category = 'work_hour' to differentiate from regular events
+  Meeting? _convertWorkHourToMeeting(WorkHour workHour) {
+    try {
+      // Calculate total hours for title
+      final loginParts = workHour.loginTime.split(':');
+      final logoutParts = workHour.logoutTime.split(':');
+      final loginHour = int.parse(loginParts[0]);
+      final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+      final logoutHour = int.parse(logoutParts[0]);
+      final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+      
+      final loginMinutes = loginHour * 60 + loginMin;
+      final logoutMinutes = logoutHour * 60 + logoutMin;
+      final totalMinutes = logoutMinutes - loginMinutes;
+      final totalHours = totalMinutes / 60.0;
+
+      // Format time for display (HH:MM format)
+      String formatTime(String timeStr) {
+        final parts = timeStr.split(':');
+        if (parts.length >= 2) {
+          return '${parts[0]}:${parts[1]}';
+        }
+        return timeStr;
+      }
+
+      // Use work hour ID with prefix to avoid conflicts with event IDs
+      final meetingId = 'work_hour_${workHour.id}';
+      
+      // Create title showing time range (e.g., "Work Hours 07:00 – 10:00")
+      final formattedStart = formatTime(workHour.loginTime);
+      final formattedEnd = formatTime(workHour.logoutTime);
+      final title = 'Work Hours $formattedStart – $formattedEnd';
+
+      return Meeting(
+        id: meetingId,
+        title: title,
+        date: workHour.date,
+        startTime: formatTime(workHour.loginTime),
+        endTime: formatTime(workHour.logoutTime),
+        primaryEventType: null,
+        meetingType: null,
+        type: 'confirmed', // Work hours are always confirmed/approved
+        creator: workHour.userEmail,
+        attendees: [workHour.userEmail],
+        category: 'work_hour', // Use 'work_hour' to differentiate from regular events
+        description: 'Work hours entry',
+        userId: workHour.userId,
+      );
+    } catch (e) {
+      print('⚠️ [CalendarController] Error converting work hour to meeting: $e');
+      return null;
+    }
+  }
+
+  /// Get distinct background color for work hour blocks per user
+  /// Returns a soft, light color that's visually distinct per user
+  /// Colors are lighter than event cards to keep events visually dominant
+  Color getWorkHourColorForUser(String userEmail, bool isDark) {
+    // Generate a consistent color based on user email hash
+    final hash = userEmail.hashCode;
+    final colors = [
+      // Soft pastel colors for light mode, darker muted colors for dark mode
+      isDark ? const Color(0xFF1E3A2E) : const Color(0xFFE0F2E9), // Soft green
+      isDark ? const Color(0xFF2E1E3A) : const Color(0xFFF2E0F5), // Soft purple
+      isDark ? const Color(0xFF3A2E1E) : const Color(0xFFF5F2E0), // Soft yellow
+      isDark ? const Color(0xFF1E2E3A) : const Color(0xFFE0E8F2), // Soft blue
+      isDark ? const Color(0xFF3A1E2E) : const Color(0xFFF2E0E8), // Soft pink
+      isDark ? const Color(0xFF2E3A1E) : const Color(0xFFE8F2E0), // Soft lime
+      isDark ? const Color(0xFF1E3A3A) : const Color(0xFFE0F2F2), // Soft cyan
+      isDark ? const Color(0xFF3A1E1E) : const Color(0xFFF2E0E0), // Soft red
+    ];
+    
+    // Use hash to select a consistent color for this user
+    final colorIndex = hash.abs() % colors.length;
+    final baseColor = colors[colorIndex];
+    
+    // Apply opacity to make it lighter (background layer)
+    return baseColor.withValues(alpha: isDark ? 0.2 : 0.4);
   }
 
   /// Change view type (day/week/month)
@@ -1029,6 +1164,39 @@ class CalendarController extends GetxController {
     eventDetails.value = null;
     eventDetailsError.value = '';
     isLoadingEventDetails.value = false;
+  }
+
+  /// Open work hour detail (similar to openMeetingDetail)
+  /// Uses same navigation pattern as events
+  /// Can be called with either a WorkHour object or a Meeting object with category='work_hour'
+  void openWorkHourDetail(dynamic workHourOrMeeting) {
+    if (workHourOrMeeting is WorkHour) {
+      selectedWorkHour.value = workHourOrMeeting;
+      print('⏰ [CalendarController] Opening work hour detail for ID: ${workHourOrMeeting.id}');
+    } else if (workHourOrMeeting is Meeting && workHourOrMeeting.category == 'work_hour') {
+      // Extract work hour ID from meeting ID (format: 'work_hour_123')
+      final workHourIdStr = workHourOrMeeting.id.replaceFirst('work_hour_', '');
+      final workHourId = int.tryParse(workHourIdStr);
+      if (workHourId != null) {
+        WorkHour? workHour;
+        try {
+          workHour = workHours.firstWhere((wh) => wh.id == workHourId);
+        } catch (e) {
+          workHour = null;
+        }
+        if (workHour != null) {
+          selectedWorkHour.value = workHour;
+          print('⏰ [CalendarController] Opening work hour detail for ID: ${workHour.id} (from meeting)');
+        } else {
+          print('⚠️ [CalendarController] Work hour not found for ID: $workHourId');
+        }
+      }
+    }
+  }
+
+  /// Close work hour detail
+  void closeWorkHourDetail() {
+    selectedWorkHour.value = null;
   }
 
   /// Handle day click in month view
