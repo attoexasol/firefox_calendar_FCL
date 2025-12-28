@@ -28,105 +28,67 @@ class CalendarScreen extends GetView<CalendarController> {
           : AppColors.backgroundLight,
       body: Stack(
         children: [
-          // Main calendar content with scroll tracking
+          // Main calendar content with CustomScrollView
           SafeArea(
-            child: Column(
-              children: [
-                // Scrollable top section: TopBar + Filters + Date Navigation (scrolls away)
-                NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    // Track scroll position and direction
-                    if (notification is ScrollUpdateNotification) {
-                      final scrollOffset = notification.metrics.pixels;
-                      controller.scrollOffset.value = scrollOffset;
-                      
-                      // Show sticky header when scrolling down past threshold
-                      // Hide when scrolling back up near top
-                      final shouldShowSticky = scrollOffset > CalendarController.stickyHeaderThreshold;
-                      
-                      if (controller.isDaysDatesRowSticky.value != shouldShowSticky) {
-                        controller.isDaysDatesRowSticky.value = shouldShowSticky;
-                      }
-                    }
-                    return false;
-                  },
-                  child: SingleChildScrollView(
-                    physics: const ClampingScrollPhysics(),
+            child: Obx(() {
+              // Show loading state
+              if (controller.isLoadingEvents.value && controller.meetings.isEmpty) {
+                return _buildLoadingState(isDark);
+              }
+
+              // Show error state (only if no events exist)
+              if (controller.eventsError.value.isNotEmpty && 
+                  controller.meetings.isEmpty &&
+                  !controller.isLoadingEvents.value) {
+                return _buildErrorState(controller.eventsError.value, isDark);
+              }
+
+              // Show empty state (only if no events and no error)
+              if (controller.meetings.isEmpty && 
+                  !controller.isLoadingEvents.value &&
+                  controller.eventsError.value.isEmpty) {
+                return _buildEmptyState(isDark);
+              }
+
+              // CustomScrollView with Slivers for sticky header behavior
+              return CustomScrollView(
+                slivers: [
+                  // Top filters that scroll away
+                  SliverToBoxAdapter(
                     child: Column(
                       children: [
-                        // 1. Top Bar - Scrolls away naturally
                         const TopBar(title: 'Calendar'),
-                        // 2. Show Calendar By (Day/Week/Month tabs) - Scrolls away naturally
                         _buildShowCalendarBy(context, isDark),
-                        // 3. Show Schedule For (Everyone/Myself tabs) - Scrolls away naturally
                         _buildShowScheduleFor(context, isDark),
-                        // 4. Date Range Navigation - Scrolls away naturally
                         _buildDateNavigation(context, isDark),
-                        // 5. Days/Dates Row - Normal position (scrolls away)
-                        Obx(() {
-                          if (controller.viewType.value == 'week') {
-                            return _buildDaysDatesRowNormal(context, isDark);
-                          }
-                          return const SizedBox.shrink();
-                        }),
+                        // Days/Dates Row removed - now ONLY in sticky SliverPersistentHeader
                       ],
                     ),
                   ),
-                ),
-                // Calendar View - Scrollable content
-                Expanded(
-                  child: Obx(() {
-                    // Show loading state
-                    if (controller.isLoadingEvents.value && controller.meetings.isEmpty) {
-                      return _buildLoadingState(isDark);
-                    }
 
-                    // Show error state (only if no events exist)
-                    if (controller.eventsError.value.isNotEmpty && 
-                        controller.meetings.isEmpty &&
-                        !controller.isLoadingEvents.value) {
-                      return _buildErrorState(controller.eventsError.value, isDark);
-                    }
+                  // Sticky Calendar Grid Header (Time + User Avatars + Day Labels)
+                  if (controller.viewType.value == 'week')
+                    _buildWeekGridHeaderSliver(context, isDark)
+                  else if (controller.viewType.value == 'day')
+                    _buildDayGridHeaderSliver(context, isDark),
 
-                    // Show empty state (only if no events and no error)
-                    if (controller.meetings.isEmpty && 
-                        !controller.isLoadingEvents.value &&
-                        controller.eventsError.value.isEmpty) {
-                      return _buildEmptyState(isDark);
-                    }
-
-                    // Show calendar views
-                    if (controller.viewType.value == 'week') {
-                      return _buildWeekView(context, isDark);
-                    } else if (controller.viewType.value == 'day') {
-                      return _buildDayView(context, isDark);
-                    } else {
-                      return _buildMonthView(context, isDark);
-                    }
-                  }),
-                ),
-              ],
-            ),
-          ),
-          // Sticky Days/Dates Row - Appears when scrolling down
-          Obx(() {
-            if (controller.viewType.value == 'week' && controller.isDaysDatesRowSticky.value) {
-              return Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: SafeArea(
-                  bottom: false,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 200),
-                    curve: Curves.easeInOut,
-                    child: _buildDaysDatesRowSticky(context, isDark),
+                  // Scrollable Calendar Body (Time Slots + Events)
+                  SliverFillRemaining(
+                    hasScrollBody: true,
+                    child: Obx(() {
+                      if (controller.viewType.value == 'week') {
+                        return _buildWeekViewContent(context, isDark);
+                      } else if (controller.viewType.value == 'day') {
+                        return _buildDayViewContent(context, isDark);
+                      } else {
+                        return _buildMonthView(context, isDark);
+                      }
+                    }),
                   ),
-                ),
+                ],
               );
-            }
-            return const SizedBox.shrink();
-          }),
+            }),
+          ),
           // Event Details Dialog listener
           _buildEventDetailsListener(),
           // Hour Details Dialog listener
@@ -147,6 +109,481 @@ class CalendarScreen extends GetView<CalendarController> {
       ),
 
       bottomNavigationBar: const BottomNav(),
+    );
+  }
+
+  /// Build week grid header as SliverPersistentHeader (sticky)
+  Widget _buildWeekGridHeaderSliver(BuildContext context, bool isDark) {
+    return Obx(() {
+      final weekDates = controller.getCurrentWeekDates();
+      final usersByDate = _getUsersByDateForWeek(weekDates);
+      
+      // Calculate total width
+      final totalWidth = 80.0 + weekDates.fold<double>(
+        0.0,
+        (sum, date) {
+          final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+          final dayUsers = usersByDate[dateStr] ?? [];
+          return sum + (dayUsers.length * 150.0);
+        },
+      );
+
+      return SliverPersistentHeader(
+        pinned: true,
+        delegate: _WeekGridHeaderDelegate(
+          weekDates: weekDates,
+          usersByDate: usersByDate,
+          totalWidth: totalWidth,
+          isDark: isDark,
+          onDateClick: (date) => controller.handleWeekDateClick(date),
+          selectedWeekDate: controller.selectedWeekDate.value,
+        ),
+      );
+    });
+  }
+
+  /// Build day grid header as SliverPersistentHeader (sticky)
+  Widget _buildDayGridHeaderSliver(BuildContext context, bool isDark) {
+    return Obx(() {
+      final currentDate = controller.currentDate.value;
+      final dateStr = '${currentDate.year}-${currentDate.month.toString().padLeft(2, '0')}-${currentDate.day.toString().padLeft(2, '0')}';
+      final meetingsByDate = controller.getMeetingsByDate();
+      final dayMeetings = meetingsByDate[dateStr] ?? [];
+      final filteredMeetings = controller.filterMeetings(dayMeetings);
+      final users = _getUsersFromMeetings(filteredMeetings);
+      
+      final totalWidth = users.length * 150.0 + 80;
+
+      return SliverPersistentHeader(
+        pinned: true,
+        delegate: _DayGridHeaderDelegate(
+          users: users,
+          totalWidth: totalWidth,
+          isDark: isDark,
+        ),
+      );
+    });
+  }
+
+  /// Build week view content (scrollable time slots)
+  Widget _buildWeekViewContent(BuildContext context, bool isDark) {
+    return Obx(() {
+      final weekDates = controller.getCurrentWeekDates();
+      final meetingsByDate = controller.getMeetingsByDate();
+      final usersByDate = _getUsersByDateForWeek(weekDates);
+      
+      // Filter meetings by selected week date if any
+      Map<String, List<Meeting>> updatedMeetingsByDate = {};
+      if (controller.selectedWeekDate.value != null) {
+        final selectedDateStr = '${controller.selectedWeekDate.value!.year}-${controller.selectedWeekDate.value!.month.toString().padLeft(2, '0')}-${controller.selectedWeekDate.value!.day.toString().padLeft(2, '0')}';
+        updatedMeetingsByDate[selectedDateStr] = meetingsByDate[selectedDateStr] ?? [];
+      } else {
+        updatedMeetingsByDate = Map.from(meetingsByDate);
+      }
+      
+      final allMeetings = updatedMeetingsByDate.values.expand((list) => list).toList();
+      final filteredMeetings = controller.filterMeetings(allMeetings);
+      final timeRange = controller.getTimeRange(filteredMeetings);
+
+      return SingleChildScrollView(
+        child: _buildWeekTimeGridContent(
+          context,
+          usersByDate,
+          weekDates,
+          updatedMeetingsByDate,
+          timeRange,
+          isDark,
+        ),
+      );
+    });
+  }
+
+  /// Build day view content (scrollable time slots)
+  Widget _buildDayViewContent(BuildContext context, bool isDark) {
+    return Obx(() {
+      final currentDate = controller.currentDate.value;
+      final dateStr = '${currentDate.year}-${currentDate.month.toString().padLeft(2, '0')}-${currentDate.day.toString().padLeft(2, '0')}';
+      final meetingsByDate = controller.getMeetingsByDate();
+      final dayMeetings = meetingsByDate[dateStr] ?? [];
+      final filteredMeetings = controller.filterMeetings(dayMeetings);
+      final timeRange = controller.getTimeRange(filteredMeetings);
+      final users = _getUsersFromMeetings(filteredMeetings);
+
+      return SingleChildScrollView(
+        child: _buildDayTimeGridContent(
+          context,
+          users,
+          dateStr,
+          filteredMeetings,
+          timeRange,
+          isDark,
+        ),
+      );
+    });
+  }
+
+  /// Get users by date for week view
+  Map<String, List<String>> _getUsersByDateForWeek(List<DateTime> weekDates) {
+    final usersByDate = <String, List<String>>{};
+    final meetingsByDate = controller.getMeetingsByDate();
+    
+    for (var date in weekDates) {
+      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      final dayMeetings = meetingsByDate[dateStr] ?? [];
+      final filteredDayMeetings = controller.filterMeetings(dayMeetings);
+      final users = _getUsersFromMeetings(filteredDayMeetings);
+      usersByDate[dateStr] = users;
+    }
+    
+    return usersByDate;
+  }
+
+  /// Build week time grid content (time slots without header)
+  Widget _buildWeekTimeGridContent(
+    BuildContext context,
+    Map<String, List<String>> usersByDate,
+    List<DateTime> weekDates,
+    Map<String, List<Meeting>> meetingsByDate,
+    TimeRange timeRange,
+    bool isDark,
+  ) {
+    final numSlots = timeRange.endHour - timeRange.startHour + 1;
+    final totalWidth = 80.0 + weekDates.fold<double>(
+      0.0,
+      (sum, date) {
+        final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        final dayUsers = usersByDate[dateStr] ?? [];
+        return sum + (dayUsers.length * 150.0);
+      },
+    );
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(
+        width: totalWidth,
+        child: Column(
+          children: List.generate(numSlots, (index) {
+            final hour = timeRange.startHour + index;
+            final timeLabel = _formatHour(hour);
+
+            return Container(
+              constraints: const BoxConstraints(minHeight: 80),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.backgroundDark
+                    : AppColors.backgroundLight,
+                border: Border(
+                  bottom: BorderSide(
+                    color: isDark
+                        ? AppColors.borderDark
+                        : AppColors.borderLight,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Time Label
+                  Container(
+                    width: 80,
+                    constraints: const BoxConstraints(minHeight: 80),
+                    alignment: Alignment.topCenter,
+                    padding: const EdgeInsets.only(top: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.backgroundDark
+                          : AppColors.backgroundLight,
+                    ),
+                    child: Text(
+                      timeLabel,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: isDark
+                            ? AppColors.mutedForegroundDark
+                            : AppColors.mutedForegroundLight,
+                      ),
+                    ),
+                  ),
+                  // User Columns for each day
+                  ...weekDates.expand((date) {
+                    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                    final dayMeetings = meetingsByDate[dateStr] ?? [];
+                    final filteredDayMeetings = controller.filterMeetings(dayMeetings);
+                    final dayUsers = usersByDate[dateStr] ?? [];
+                    
+                    if (dayUsers.isEmpty) {
+                      return <Widget>[];
+                    }
+                    
+                    return dayUsers.map((user) {
+                      // Find meetings for this user on this date that overlap with this hour slot
+                      final userMeetings = filteredDayMeetings.where((meeting) {
+                        if (controller.scopeType.value == 'myself') {
+                          if (controller.userId.value > 0 && meeting.userId != null) {
+                            if (meeting.userId != controller.userId.value) {
+                              return false;
+                            }
+                          } else {
+                            final isUserMeeting = meeting.creator == user ||
+                                meeting.attendees.contains(user);
+                            if (!isUserMeeting) return false;
+                          }
+                        } else {
+                          final isUserMeeting = meeting.creator == user ||
+                              meeting.attendees.contains(user);
+                          if (!isUserMeeting) return false;
+                        }
+
+                        final startParts = meeting.startTime.split(':');
+                        final endParts = meeting.endTime.split(':');
+                        final startHour = int.parse(startParts[0]);
+                        final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
+                        final endHour = int.parse(endParts[0]);
+                        final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
+                        
+                        final startMinutes = startHour * 60 + startMin;
+                        final endMinutes = endHour * 60 + endMin;
+                        final hourStartMinutes = hour * 60;
+                        final hourEndMinutes = (hour + 1) * 60;
+                        
+                        return startMinutes < hourEndMinutes && endMinutes > hourStartMinutes;
+                      }).toList();
+                      
+                      // Get work hours for this user and date
+                      final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                      
+                      final hourWorkHours = userWorkHours.where((workHour) {
+                        final loginParts = workHour.loginTime.split(':');
+                        final loginHour = int.parse(loginParts[0]);
+                        return loginHour == hour;
+                      }).toList();
+                      
+                      bool hasWorkHourInThisSlot = false;
+                      for (var workHour in userWorkHours) {
+                        final loginParts = workHour.loginTime.split(':');
+                        final logoutParts = workHour.logoutTime.split(':');
+                        final loginHour = int.parse(loginParts[0]);
+                        final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                        final logoutHour = int.parse(logoutParts[0]);
+                        final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                        
+                        final loginMinutes = loginHour * 60 + loginMin;
+                        final logoutMinutes = logoutHour * 60 + logoutMin;
+                        final hourStartMinutes = hour * 60;
+                        final hourEndMinutes = (hour + 1) * 60;
+                        
+                        if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
+                          hasWorkHourInThisSlot = true;
+                          break;
+                        }
+                      }
+                      
+                      final hourEvents = userMeetings.where((meeting) {
+                        final startParts = meeting.startTime.split(':');
+                        final startHour = int.parse(startParts[0]);
+                        return startHour == hour;
+                      }).toList();
+
+                      return Container(
+                        width: 150,
+                        constraints: const BoxConstraints(minHeight: 80),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? AppColors.backgroundDark
+                              : AppColors.backgroundLight,
+                          border: Border(
+                            right: BorderSide(
+                              color: isDark
+                                  ? AppColors.borderDark
+                                  : AppColors.borderLight,
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        padding: const EdgeInsets.all(4),
+                        child: _buildCellContent(
+                          context: context,
+                          meetings: hourEvents,
+                          workHours: hourWorkHours,
+                          dateStr: dateStr,
+                          userEmail: user,
+                          hour: hour,
+                          isDark: isDark,
+                          hasWorkHourBackground: hasWorkHourInThisSlot,
+                        ),
+                      );
+                    });
+                  }),
+                ],
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  /// Build day time grid content (time slots without header)
+  Widget _buildDayTimeGridContent(
+    BuildContext context,
+    List<String> users,
+    String dateStr,
+    List<Meeting> meetings,
+    TimeRange timeRange,
+    bool isDark,
+  ) {
+    final numSlots = timeRange.endHour - timeRange.startHour + 1;
+    final totalWidth = users.length * 150.0 + 80;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SizedBox(
+        width: totalWidth,
+        child: Column(
+          children: List.generate(numSlots, (index) {
+            final hour = timeRange.startHour + index;
+            final timeLabel = _formatHour(hour);
+
+            return Container(
+              constraints: const BoxConstraints(minHeight: 80),
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.backgroundDark
+                    : AppColors.backgroundLight,
+                border: Border(
+                  bottom: BorderSide(
+                    color: isDark
+                        ? AppColors.borderDark
+                        : AppColors.borderLight,
+                    width: 1,
+                  ),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Time Label
+                  Container(
+                    width: 80,
+                    constraints: const BoxConstraints(minHeight: 80),
+                    alignment: Alignment.topCenter,
+                    padding: const EdgeInsets.only(top: 8),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.backgroundDark
+                          : AppColors.backgroundLight,
+                    ),
+                    child: Text(
+                      timeLabel,
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: isDark
+                            ? AppColors.mutedForegroundDark
+                            : AppColors.mutedForegroundLight,
+                      ),
+                    ),
+                  ),
+                  // User Columns
+                  ...users.map((user) {
+                    final userMeetings = meetings.where((meeting) {
+                      if (controller.scopeType.value == 'myself') {
+                        if (controller.userId.value > 0 && meeting.userId != null) {
+                          if (meeting.userId != controller.userId.value) {
+                            return false;
+                          }
+                        } else {
+                          final isUserMeeting = meeting.creator == user ||
+                              meeting.attendees.contains(user);
+                          if (!isUserMeeting) return false;
+                        }
+                      } else {
+                        final isUserMeeting = meeting.creator == user ||
+                            meeting.attendees.contains(user);
+                        if (!isUserMeeting) return false;
+                      }
+
+                      final startParts = meeting.startTime.split(':');
+                      final endParts = meeting.endTime.split(':');
+                      final startHour = int.parse(startParts[0]);
+                      final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
+                      final endHour = int.parse(endParts[0]);
+                      final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
+                      
+                      final startMinutes = startHour * 60 + startMin;
+                      final endMinutes = endHour * 60 + endMin;
+                      final hourStartMinutes = hour * 60;
+                      final hourEndMinutes = (hour + 1) * 60;
+                      
+                      return startMinutes < hourEndMinutes && endMinutes > hourStartMinutes;
+                    }).toList();
+                    
+                    final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                    final hourWorkHours = userWorkHours.where((workHour) {
+                      final loginParts = workHour.loginTime.split(':');
+                      final loginHour = int.parse(loginParts[0]);
+                      return loginHour == hour;
+                    }).toList();
+                    
+                    bool hasWorkHourInThisSlot = false;
+                    for (var workHour in userWorkHours) {
+                      final loginParts = workHour.loginTime.split(':');
+                      final logoutParts = workHour.logoutTime.split(':');
+                      final loginHour = int.parse(loginParts[0]);
+                      final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                      final logoutHour = int.parse(logoutParts[0]);
+                      final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                      
+                      final loginMinutes = loginHour * 60 + loginMin;
+                      final logoutMinutes = logoutHour * 60 + logoutMin;
+                      final hourStartMinutes = hour * 60;
+                      final hourEndMinutes = (hour + 1) * 60;
+                      
+                      if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
+                        hasWorkHourInThisSlot = true;
+                        break;
+                      }
+                    }
+                    
+                    final hourEvents = userMeetings.where((meeting) {
+                      final startParts = meeting.startTime.split(':');
+                      final startHour = int.parse(startParts[0]);
+                      return startHour == hour;
+                    }).toList();
+
+                    return Container(
+                      width: 150,
+                      constraints: const BoxConstraints(minHeight: 80),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.backgroundDark
+                            : AppColors.backgroundLight,
+                        border: Border(
+                          right: BorderSide(
+                            color: isDark
+                                ? AppColors.borderDark
+                                : AppColors.borderLight,
+                            width: 1,
+                          ),
+                        ),
+                      ),
+                      padding: const EdgeInsets.all(4),
+                      child: _buildCellContent(
+                        context: context,
+                        meetings: hourEvents,
+                        workHours: hourWorkHours,
+                        dateStr: dateStr,
+                        userEmail: user,
+                        hour: hour,
+                        isDark: isDark,
+                        hasWorkHourBackground: hasWorkHourInThisSlot,
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            );
+          }),
+        ),
+      ),
     );
   }
 
@@ -740,13 +1177,12 @@ class CalendarScreen extends GetView<CalendarController> {
                 ),
               ),
 
-            // Days/Dates row removed from here - now in scrollable header
-            // It will appear as sticky when scrolling down
+            // Days/Dates row removed from here - now in sticky SliverPersistentHeader
+            // Grid header (Time + User profiles) is also in sticky SliverPersistentHeader
 
-            // SCROLLABLE: Week Schedule with User Columns
-            // Grid header (Time + User profiles) is fixed, time slots scroll
+            // SCROLLABLE: Week Schedule with User Columns (ONLY time slots, NO headers)
             Expanded(
-              child: _buildWeekUserTimelineGrid(
+              child: _buildWeekTimeGridContent(
                 context,
                 usersByDate,
                 weekDates,
@@ -913,7 +1349,7 @@ class CalendarScreen extends GetView<CalendarController> {
                       final timeLabel = _formatHour(hour);
 
                       return Container(
-                        height: 80,
+                        constraints: const BoxConstraints(minHeight: 80),
                         decoration: BoxDecoration(
                           color: isDark
                               ? AppColors.backgroundDark
@@ -928,11 +1364,12 @@ class CalendarScreen extends GetView<CalendarController> {
                           ),
                         ),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             // Time Label
                             Container(
                               width: 80,
-                              height: 80,
+                              constraints: const BoxConstraints(minHeight: 80),
                               alignment: Alignment.topCenter,
                               padding: const EdgeInsets.only(top: 8),
                               decoration: BoxDecoration(
@@ -1080,20 +1517,16 @@ class CalendarScreen extends GetView<CalendarController> {
                                 return startHour == hour;
                               }).toList();
                               
-                              // Use helper method to build cell content with overflow handling
-                              // Wrap in SingleChildScrollView to prevent overflow
-                              return SingleChildScrollView(
-                                physics: const NeverScrollableScrollPhysics(),
-                                child: _buildCellContent(
-                                  context: context,
-                                  meetings: hourEvents,
-                                  workHours: hourWorkHours,
-                                  dateStr: dateStr,
-                                  userEmail: user,
-                                  hour: hour,
-                                  isDark: isDark,
-                                  hasWorkHourBackground: hasWorkHourInThisSlot,
-                                ),
+                              // Use helper method to build cell content - allows dynamic growth
+                              return _buildCellContent(
+                                context: context,
+                                meetings: hourEvents,
+                                workHours: hourWorkHours,
+                                dateStr: dateStr,
+                                userEmail: user,
+                                hour: hour,
+                                isDark: isDark,
+                                hasWorkHourBackground: hasWorkHourInThisSlot,
                               );
                             },
                           ),
@@ -1199,10 +1632,9 @@ class CalendarScreen extends GetView<CalendarController> {
       return aMin.compareTo(bMin);
     });
 
-    // Determine how many items to show (1 max to prevent overflow in 80px cells)
-    // With padding (8px) and margins, we have ~72px available
-    // Each card needs ~30px, so only 1 card fits comfortably
-    const maxVisibleItems = 1;
+    // Show all items - cells will grow to accommodate content
+    // If more than 3 items, show first 3 and "+N more" indicator
+    const maxVisibleItems = 3;
     final visibleItems = allItems.take(maxVisibleItems).toList();
     final remainingCount = allItems.length - visibleItems.length;
     final hasOverflow = remainingCount > 0;
@@ -1222,83 +1654,78 @@ class CalendarScreen extends GetView<CalendarController> {
             ),
           ),
         
-        // CARDS FOREGROUND (content-driven Column with overflow protection)
-        ClipRect(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Visible items
-              ...visibleItems.map((item) {
-                if (item.type == _CellItemType.meeting) {
-                  return _buildMeetingCard(
-                    context,
-                    item.meeting!,
-                    controller,
-                    isDark,
-                  );
-                } else {
-                  return _buildWorkHourCard(
-                    context,
-                    item.workHour!,
-                    controller,
-                    isDark,
-                  );
-                }
-              }),
-              
-              // Overflow indicator
-              if (hasOverflow)
-                InkWell(
-                  onTap: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => CellCardsModal(
-                        meetings: meetings,
-                        workHours: workHours,
-                        dateStr: dateStr,
-                        userEmail: userEmail,
-                        hour: hour,
-                        isDark: isDark,
-                      ),
-                    );
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(top: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                    constraints: const BoxConstraints(
-                      maxHeight: 24,
+        // CARDS FOREGROUND (content-driven Column - allows growth)
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Visible items - stack vertically with spacing
+            ...visibleItems.map((item) {
+              if (item.type == _CellItemType.meeting) {
+                return _buildMeetingCard(
+                  context,
+                  item.meeting!,
+                  controller,
+                  isDark,
+                );
+              } else {
+                return _buildWorkHourCard(
+                  context,
+                  item.workHour!,
+                  controller,
+                  isDark,
+                );
+              }
+            }),
+            
+            // Overflow indicator
+            if (hasOverflow)
+              InkWell(
+                onTap: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => CellCardsModal(
+                      meetings: meetings,
+                      workHours: workHours,
+                      dateStr: dateStr,
+                      userEmail: userEmail,
+                      hour: hour,
+                      isDark: isDark,
                     ),
-                    decoration: BoxDecoration(
+                  );
+                },
+                child: Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(top: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.mutedDark.withValues(alpha: 0.5)
+                        : AppColors.mutedLight.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
                       color: isDark
-                          ? AppColors.mutedDark.withValues(alpha: 0.5)
-                          : AppColors.mutedLight.withValues(alpha: 0.5),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: isDark
-                            ? AppColors.borderDark
-                            : AppColors.borderLight,
-                        width: 1,
-                      ),
-                    ),
-                    child: Text(
-                      '+$remainingCount more',
-                      style: AppTextStyles.labelSmall.copyWith(
-                        color: isDark
-                            ? AppColors.foregroundDark
-                            : AppColors.foregroundLight,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 9,
-                      ),
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                          ? AppColors.borderDark
+                          : AppColors.borderLight,
+                      width: 1,
                     ),
                   ),
+                  child: Text(
+                    '+$remainingCount more',
+                    style: AppTextStyles.labelSmall.copyWith(
+                      color: isDark
+                          ? AppColors.foregroundDark
+                          : AppColors.foregroundLight,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 9,
+                    ),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ],
     );
@@ -1339,27 +1766,30 @@ class CalendarScreen extends GetView<CalendarController> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(
-              meeting.title,
-              style: AppTextStyles.labelSmall.copyWith(
-                color: textColor,
-                fontWeight: FontWeight.w600,
-                fontSize: 10,
+            Flexible(
+              child: Text(
+                meeting.title,
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: textColor,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 10,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 1),
-            Text(
-              meeting.startTime,
-              style: AppTextStyles.labelSmall.copyWith(
-                fontSize: 8,
-                color: textColor.withValues(alpha: 0.9),
+            const SizedBox(height: 2),
+            Flexible(
+              child: Text(
+                meeting.startTime,
+                style: AppTextStyles.labelSmall.copyWith(
+                  fontSize: 8,
+                  color: textColor.withValues(alpha: 0.9),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -1427,7 +1857,6 @@ class CalendarScreen extends GetView<CalendarController> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -1452,15 +1881,17 @@ class CalendarScreen extends GetView<CalendarController> {
                 ),
               ],
             ),
-            const SizedBox(height: 1),
-            Text(
-              '${totalHours.toStringAsFixed(1)}h',
-              style: AppTextStyles.labelSmall.copyWith(
-                fontSize: 8,
-                color: hourTextColor.withValues(alpha: 0.9),
+            const SizedBox(height: 2),
+            Flexible(
+              child: Text(
+                '${totalHours.toStringAsFixed(1)}h',
+                style: AppTextStyles.labelSmall.copyWith(
+                  fontSize: 8,
+                  color: hourTextColor.withValues(alpha: 0.9),
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
             ),
           ],
         ),
@@ -2545,5 +2976,468 @@ class _HourDetailsListenerState extends State<_HourDetailsListener> {
       
       return const SizedBox.shrink();
     });
+  }
+}
+
+/// SliverPersistentHeaderDelegate for Week Grid Header
+/// Sticky header with days/dates row + time column + user avatars
+class _WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final List<DateTime> weekDates;
+  final Map<String, List<String>> usersByDate;
+  final double totalWidth;
+  final bool isDark;
+  final Function(DateTime) onDateClick;
+  final DateTime? selectedWeekDate;
+
+  _WeekGridHeaderDelegate({
+    required this.weekDates,
+    required this.usersByDate,
+    required this.totalWidth,
+    required this.isDark,
+    required this.onDateClick,
+    this.selectedWeekDate,
+  });
+
+  @override
+  double get minExtent => 168.0; // Days row (~60 with padding) + User header (80) + borders/spacing (~28)
+
+  @override
+  double get maxExtent => 168.0;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      color: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Days/Dates Row
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            constraints: const BoxConstraints(minHeight: 60),
+            decoration: BoxDecoration(
+              color: isDark
+                  ? AppColors.backgroundDark
+                  : AppColors.backgroundLight,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark ? AppColors.borderDark : AppColors.borderLight,
+                  width: 1,
+                ),
+              ),
+            ),
+            child: Row(
+              children: weekDates.map((date) {
+                return _buildDayDateItem(date, isDark);
+              }).toList(),
+            ),
+          ),
+          // User Header Row (Time + User Avatars)
+          Container(
+            height: 80,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? AppColors.backgroundDark
+                  : AppColors.backgroundLight,
+              border: Border(
+                bottom: BorderSide(
+                  color: isDark
+                      ? AppColors.borderDark
+                      : AppColors.borderLight,
+                  width: 1,
+                ),
+              ),
+            ),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: totalWidth,
+                child: Row(
+                  children: [
+                    // Time Label Header
+                    Container(
+                      width: 80,
+                      height: 80,
+                      padding: const EdgeInsets.all(8),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? AppColors.backgroundDark
+                            : AppColors.backgroundLight,
+                      ),
+                      child: Text(
+                        'Time',
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    // User Columns for each day
+                    ...weekDates.expand((date) {
+                      final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+                      final dayUsers = usersByDate[dateStr] ?? [];
+                      return dayUsers.map((user) {
+                        return Container(
+                          width: 150,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? AppColors.backgroundDark
+                                : AppColors.backgroundLight,
+                            border: Border(
+                              right: BorderSide(
+                                color: isDark
+                                    ? AppColors.borderDark
+                                    : AppColors.borderLight,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // User Avatar
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: _getUserColor(user),
+                                  shape: BoxShape.circle,
+                                ),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  _getUserInitials(user),
+                                  style: AppTextStyles.labelSmall.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              // User Name
+                              Text(
+                                _getDisplayName(user),
+                                style: AppTextStyles.labelSmall.copyWith(
+                                  color: isDark
+                                      ? AppColors.foregroundDark
+                                      : AppColors.foregroundLight,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 10,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.center,
+                              ),
+                            ],
+                          ),
+                        );
+                      });
+                    }),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_WeekGridHeaderDelegate oldDelegate) {
+    return weekDates != oldDelegate.weekDates ||
+        usersByDate != oldDelegate.usersByDate ||
+        isDark != oldDelegate.isDark ||
+        selectedWeekDate != oldDelegate.selectedWeekDate;
+  }
+
+  // Helper methods
+  Color _getUserColor(String userEmail) {
+    final hash = userEmail.hashCode;
+    final colors = [
+      const Color(0xFFEF4444),
+      const Color(0xFF3B82F6),
+      const Color(0xFF10B981),
+      const Color(0xFFF59E0B),
+      const Color(0xFF8B5CF6),
+      const Color(0xFFEC4899),
+      const Color(0xFF06B6D4),
+      const Color(0xFFF97316),
+      const Color(0xFF14B8A6),
+      const Color(0xFF6366F1),
+      const Color(0xFF84CC16),
+      const Color(0xFFEAB308),
+    ];
+    return colors[hash.abs() % colors.length];
+  }
+
+  String _getUserInitials(String userEmail) {
+    final parts = userEmail.split('@')[0].split('.');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return userEmail.substring(0, 2).toUpperCase();
+  }
+
+  String _getDisplayName(String userEmail) {
+    final parts = userEmail.split('@')[0].split('.');
+    if (parts.length >= 2) {
+      return '${parts[0]} ${parts[1]}';
+    }
+    return userEmail.split('@')[0];
+  }
+
+  Widget _buildDayDateItem(DateTime date, bool isDark) {
+    final today = DateTime.now();
+    final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+    final isToday =
+        date.year == today.year &&
+        date.month == today.month &&
+        date.day == today.day;
+    final isFiltered =
+        selectedWeekDate != null &&
+        selectedWeekDate!.toIso8601String().split('T')[0] == dateStr;
+
+    const weekdays = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+    return Expanded(
+      child: InkWell(
+        onTap: () => onDateClick(date),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: BoxDecoration(
+            color: isFiltered
+                ? AppColors.primary.withValues(alpha: 0.1)
+                : isToday
+                    ? AppColors.primary.withValues(alpha: 0.05)
+                    : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: isToday
+                ? Border.all(
+                    color: AppColors.primary,
+                    width: 2,
+                  )
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                weekdays[date.weekday - 1],
+                style: AppTextStyles.labelSmall.copyWith(
+                  color: isFiltered
+                      ? AppColors.primary
+                      : isToday
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.mutedForegroundDark
+                              : AppColors.mutedForegroundLight),
+                  fontWeight: isToday || isFiltered
+                      ? FontWeight.w600
+                      : FontWeight.normal,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${date.day}',
+                style: AppTextStyles.labelMedium.copyWith(
+                  color: isFiltered
+                      ? AppColors.primary
+                      : isToday
+                          ? AppColors.primary
+                          : (isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight),
+                  fontWeight: isToday || isFiltered
+                      ? FontWeight.w700
+                      : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// SliverPersistentHeaderDelegate for Day Grid Header
+/// Sticky header with time column + user avatars
+class _DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final List<String> users;
+  final double totalWidth;
+  final bool isDark;
+
+  _DayGridHeaderDelegate({
+    required this.users,
+    required this.totalWidth,
+    required this.isDark,
+  });
+
+  @override
+  double get minExtent => 80.0;
+
+  @override
+  double get maxExtent => 80.0;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return Container(
+      height: 80,
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.backgroundDark
+            : AppColors.backgroundLight,
+        border: Border(
+          bottom: BorderSide(
+            color: isDark
+                ? AppColors.borderDark
+                : AppColors.borderLight,
+            width: 1,
+          ),
+        ),
+      ),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: SizedBox(
+          width: totalWidth,
+          child: Row(
+            children: [
+              // Time Label Header
+              Container(
+                width: 80,
+                height: 80,
+                padding: const EdgeInsets.all(8),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? AppColors.backgroundDark
+                      : AppColors.backgroundLight,
+                ),
+                child: Text(
+                  'Time',
+                  style: AppTextStyles.labelSmall.copyWith(
+                    color: isDark
+                        ? AppColors.foregroundDark
+                        : AppColors.foregroundLight,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+              // User Columns
+              ...users.map((user) {
+                return Container(
+                  width: 150,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: isDark
+                        ? AppColors.backgroundDark
+                        : AppColors.backgroundLight,
+                    border: Border(
+                      right: BorderSide(
+                        color: isDark
+                            ? AppColors.borderDark
+                            : AppColors.borderLight,
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  padding: const EdgeInsets.all(8),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // User Avatar
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: _getUserColor(user),
+                          shape: BoxShape.circle,
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          _getUserInitials(user),
+                          style: AppTextStyles.labelSmall.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      // User Name
+                      Text(
+                        _getDisplayName(user),
+                        style: AppTextStyles.labelSmall.copyWith(
+                          color: isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight,
+                          fontWeight: FontWeight.w500,
+                          fontSize: 10,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(_DayGridHeaderDelegate oldDelegate) {
+    return users != oldDelegate.users ||
+        isDark != oldDelegate.isDark;
+  }
+
+  // Helper methods
+  Color _getUserColor(String userEmail) {
+    final hash = userEmail.hashCode;
+    final colors = [
+      const Color(0xFFEF4444),
+      const Color(0xFF3B82F6),
+      const Color(0xFF10B981),
+      const Color(0xFFF59E0B),
+      const Color(0xFF8B5CF6),
+      const Color(0xFFEC4899),
+      const Color(0xFF06B6D4),
+      const Color(0xFFF97316),
+      const Color(0xFF14B8A6),
+      const Color(0xFF6366F1),
+      const Color(0xFF84CC16),
+      const Color(0xFFEAB308),
+    ];
+    return colors[hash.abs() % colors.length];
+  }
+
+  String _getUserInitials(String userEmail) {
+    final parts = userEmail.split('@')[0].split('.');
+    if (parts.length >= 2) {
+      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return userEmail.substring(0, 2).toUpperCase();
+  }
+
+  String _getDisplayName(String userEmail) {
+    final parts = userEmail.split('@')[0].split('.');
+    if (parts.length >= 2) {
+      return '${parts[0]} ${parts[1]}';
+    }
+    return userEmail.split('@')[0];
   }
 }
