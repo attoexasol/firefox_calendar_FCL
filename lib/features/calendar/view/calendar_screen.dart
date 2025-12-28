@@ -30,25 +30,25 @@ class CalendarScreen extends GetView<CalendarController> {
         children: [
           // Main calendar content with CustomScrollView
           SafeArea(
-            child: Obx(() {
-              // Show loading state
-              if (controller.isLoadingEvents.value && controller.meetings.isEmpty) {
-                return _buildLoadingState(isDark);
-              }
+                  child: Obx(() {
+                    // Show loading state
+                    if (controller.isLoadingEvents.value && controller.meetings.isEmpty) {
+                      return _buildLoadingState(isDark);
+                    }
 
-              // Show error state (only if no events exist)
-              if (controller.eventsError.value.isNotEmpty && 
-                  controller.meetings.isEmpty &&
-                  !controller.isLoadingEvents.value) {
-                return _buildErrorState(controller.eventsError.value, isDark);
-              }
+                    // Show error state (only if no events exist)
+                    if (controller.eventsError.value.isNotEmpty && 
+                        controller.meetings.isEmpty &&
+                        !controller.isLoadingEvents.value) {
+                      return _buildErrorState(controller.eventsError.value, isDark);
+                    }
 
-              // Show empty state (only if no events and no error)
-              if (controller.meetings.isEmpty && 
-                  !controller.isLoadingEvents.value &&
-                  controller.eventsError.value.isEmpty) {
-                return _buildEmptyState(isDark);
-              }
+                    // Show empty state (only if no events and no error)
+                    if (controller.meetings.isEmpty && 
+                        !controller.isLoadingEvents.value &&
+                        controller.eventsError.value.isEmpty) {
+                      return _buildEmptyState(isDark);
+                    }
 
               // CustomScrollView with Slivers for sticky header behavior
               return CustomScrollView(
@@ -61,7 +61,7 @@ class CalendarScreen extends GetView<CalendarController> {
                         _buildShowCalendarBy(context, isDark),
                         _buildShowScheduleFor(context, isDark),
                         _buildDateNavigation(context, isDark),
-                        // Days/Dates Row removed - now ONLY in sticky SliverPersistentHeader
+                        // Days/Dates Row is ONLY in sticky SliverPersistentHeader (no duplication)
                       ],
                     ),
                   ),
@@ -76,16 +76,16 @@ class CalendarScreen extends GetView<CalendarController> {
                   SliverFillRemaining(
                     hasScrollBody: true,
                     child: Obx(() {
-                      if (controller.viewType.value == 'week') {
+                    if (controller.viewType.value == 'week') {
                         return _buildWeekViewContent(context, isDark);
-                      } else if (controller.viewType.value == 'day') {
+                    } else if (controller.viewType.value == 'day') {
                         return _buildDayViewContent(context, isDark);
-                      } else {
-                        return _buildMonthView(context, isDark);
-                      }
-                    }),
-                  ),
-                ],
+                    } else {
+                      return _buildMonthView(context, isDark);
+                    }
+                  }),
+                ),
+              ],
               );
             }),
           ),
@@ -1639,26 +1639,26 @@ class CalendarScreen extends GetView<CalendarController> {
     final remainingCount = allItems.length - visibleItems.length;
     final hasOverflow = remainingCount > 0;
 
-    return Stack(
-      children: [
+                              return Stack(
+                                children: [
         // WORK HOURS BACKGROUND BLOCK (if any work hour spans this hour)
         if (hasWorkHourBackground)
-          Positioned.fill(
-            child: Container(
-              decoration: BoxDecoration(
-                color: isDark
+                                    Positioned.fill(
+                                      child: Container(
+                                        decoration: BoxDecoration(
+                                          color: isDark
                     ? const Color(0xFF166534).withValues(alpha: 0.15)
                     : const Color(0xFFD1FAE5).withValues(alpha: 0.6),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-        
+                                          borderRadius: BorderRadius.circular(2),
+                                        ),
+                                      ),
+                                    ),
+                                  
         // CARDS FOREGROUND (content-driven Column - allows growth)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
             // Visible items - stack vertically with spacing
             ...visibleItems.map((item) {
               if (item.type == _CellItemType.meeting) {
@@ -1804,95 +1804,95 @@ class CalendarScreen extends GetView<CalendarController> {
     CalendarController controller,
     bool isDark,
   ) {
-    final loginParts = workHour.loginTime.split(':');
-    final logoutParts = workHour.logoutTime.split(':');
-    final loginHour = int.parse(loginParts[0]);
-    final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
-    final logoutHour = int.parse(logoutParts[0]);
-    final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
-    
-    final loginMinutes = loginHour * 60 + loginMin;
-    final logoutMinutes = logoutHour * 60 + logoutMin;
-    final totalMinutes = logoutMinutes - loginMinutes;
-    final totalHours = totalMinutes / 60.0;
+                                        final loginParts = workHour.loginTime.split(':');
+                                        final logoutParts = workHour.logoutTime.split(':');
+                                        final loginHour = int.parse(loginParts[0]);
+                                        final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                                        final logoutHour = int.parse(logoutParts[0]);
+                                        final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                                        
+                                        final loginMinutes = loginHour * 60 + loginMin;
+                                        final logoutMinutes = logoutHour * 60 + logoutMin;
+                                        final totalMinutes = logoutMinutes - loginMinutes;
+                                        final totalHours = totalMinutes / 60.0;
 
-    String formatTime(String timeStr) {
-      final parts = timeStr.split(':');
-      if (parts.length >= 2) {
-        final h = int.parse(parts[0]);
-        final m = parts[1];
-        final period = h >= 12 ? 'PM' : 'AM';
-        final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-        return '$displayHour:$m $period';
-      }
-      return timeStr;
-    }
+                                        String formatTime(String timeStr) {
+                                          final parts = timeStr.split(':');
+                                          if (parts.length >= 2) {
+                                            final h = int.parse(parts[0]);
+                                            final m = parts[1];
+                                            final period = h >= 12 ? 'PM' : 'AM';
+                                            final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
+                                            return '$displayHour:$m $period';
+                                          }
+                                          return timeStr;
+                                        }
 
-    final hourCardColor = isDark
-        ? Colors.blue.withValues(alpha: 0.3)
-        : Colors.blue.withValues(alpha: 0.2);
-    final hourTextColor = isDark
-        ? Colors.blue.shade200
-        : Colors.blue.shade900;
+                                        final hourCardColor = isDark
+                                            ? Colors.blue.withValues(alpha: 0.3)
+                                            : Colors.blue.withValues(alpha: 0.2);
+                                        final hourTextColor = isDark
+                                            ? Colors.blue.shade200
+                                            : Colors.blue.shade900;
 
-    return InkWell(
-      onTap: () => controller.openWorkHourDetail(workHour),
-      child: Container(
-        width: double.infinity,
+                                        return InkWell(
+                                          onTap: () => controller.openWorkHourDetail(workHour),
+                                          child: Container(
+                                            width: double.infinity,
         constraints: const BoxConstraints(
           minHeight: 28,
         ),
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(
-          color: hourCardColor,
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
-            color: isDark
-                ? Colors.blue.withValues(alpha: 0.5)
-                : Colors.blue.withValues(alpha: 0.3),
-            width: 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
+                                            decoration: BoxDecoration(
+                                              color: hourCardColor,
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(
+                                                color: isDark
+                                                    ? Colors.blue.withValues(alpha: 0.5)
+                                                    : Colors.blue.withValues(alpha: 0.3),
+                                                width: 1,
+                                              ),
+                                            ),
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Row(
               mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.access_time,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.access_time,
                   size: 10,
-                  color: hourTextColor,
-                ),
+                                                        color: hourTextColor,
+                                                      ),
                 const SizedBox(width: 3),
-                Flexible(
-                  child: Text(
-                    '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
-                    style: AppTextStyles.labelSmall.copyWith(
-                      color: hourTextColor,
-                      fontWeight: FontWeight.w600,
+                                                      Flexible(
+                                                        child: Text(
+                                                          '${formatTime(workHour.loginTime)} - ${formatTime(workHour.logoutTime)}',
+                                                          style: AppTextStyles.labelSmall.copyWith(
+                                                            color: hourTextColor,
+                                                            fontWeight: FontWeight.w600,
                       fontSize: 9,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 2),
+                                                          ),
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow.ellipsis,
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                  const SizedBox(height: 2),
             Flexible(
               child: Text(
-                '${totalHours.toStringAsFixed(1)}h',
-                style: AppTextStyles.labelSmall.copyWith(
+                                                    '${totalHours.toStringAsFixed(1)}h',
+                                                    style: AppTextStyles.labelSmall.copyWith(
                   fontSize: 8,
-                  color: hourTextColor.withValues(alpha: 0.9),
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
+                                                      color: hourTextColor.withValues(alpha: 0.9),
+                                                      ),
+                                                      maxLines: 1,
+                                                      overflow: TextOverflow.ellipsis,
+                                                    ),
+                                                  ),
           ],
         ),
       ),
@@ -2717,9 +2717,9 @@ class CalendarScreen extends GetView<CalendarController> {
                                     hour: hour,
                                     isDark: isDark,
                                     hasWorkHourBackground: hasWorkHourInThisSlot,
-                                  ),
-                                ),
-                              ],
+                                                      ),
+                                                    ),
+                                                  ],
                             );
                           },
                         ),
