@@ -91,16 +91,42 @@ double get totalHours =>
     fetchCalendarEvents();
   }
 
-  /// Navigate to previous week/month
+  /// Navigate to previous period (day/week/month)
   void navigateToPreviousWeek() {
-    currentDate.value = currentDate.value.subtract(const Duration(days: 7));
+    final oldDate = currentDate.value;
+    
+    switch (activeTab.value) {
+      case 'day':
+        currentDate.value = oldDate.subtract(const Duration(days: 1));
+        break;
+      case 'week':
+        currentDate.value = oldDate.subtract(const Duration(days: 7));
+        break;
+      case 'month':
+        currentDate.value = DateTime(oldDate.year, oldDate.month - 1, oldDate.day);
+        break;
+    }
+    
     fetchWorkHours();
     fetchCalendarEvents();
   }
 
-  /// Navigate to next week/month
+  /// Navigate to next period (day/week/month)
   void navigateToNextWeek() {
-    currentDate.value = currentDate.value.add(const Duration(days: 7));
+    final oldDate = currentDate.value;
+    
+    switch (activeTab.value) {
+      case 'day':
+        currentDate.value = oldDate.add(const Duration(days: 1));
+        break;
+      case 'week':
+        currentDate.value = oldDate.add(const Duration(days: 7));
+        break;
+      case 'month':
+        currentDate.value = DateTime(oldDate.year, oldDate.month + 1, oldDate.day);
+        break;
+    }
+    
     fetchWorkHours();
     fetchCalendarEvents();
   }
@@ -197,40 +223,59 @@ double get totalHours =>
     ];
   }
 
-  /// Get filtered work logs based on active period
-  List<WorkLog> getFilteredWorkLogs() {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+  /// Format date to YYYY-MM-DD string (consistent with CalendarController)
+  String _formatDateString(DateTime date) {
+    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Check if a date string (YYYY-MM-DD) matches the current filter
+  /// Shared filter function for both events and work hours
+  /// Uses currentDate.value (not DateTime.now())
+  bool _isDateInFilter(String dateString) {
+    final itemDateStr = dateString; // Already in YYYY-MM-DD format
     
     switch (activeTab.value) {
       case 'day':
-        return workLogs.where((log) {
-          final logDate = DateTime(log.date.year, log.date.month, log.date.day);
-          return logDate.isAtSameMomentAs(today);
-        }).toList();
+        // Day view: exact date match (YYYY-MM-DD string comparison)
+        final currentDateStr = _formatDateString(currentDate.value);
+        return itemDateStr == currentDateStr;
         
       case 'week':
+        // Week view: date is within current week (Monday to Sunday, inclusive)
         final weekDates = _getCurrentWeekDates();
         final weekStart = weekDates.first;
         final weekEnd = weekDates.last;
         
-        return workLogs.where((log) {
-          return log.date.isAfter(weekStart.subtract(const Duration(days: 1))) &&
-                 log.date.isBefore(weekEnd.add(const Duration(days: 1)));
-        }).toList();
+        // Parse item date
+        final itemDate = DateTime.parse(itemDateStr);
+        final itemDateOnly = DateTime(itemDate.year, itemDate.month, itemDate.day);
+        final weekStartOnly = DateTime(weekStart.year, weekStart.month, weekStart.day);
+        final weekEndOnly = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
+        
+        // Check if item date is within week range (inclusive boundaries)
+        return (itemDateOnly.isAtSameMomentAs(weekStartOnly) ||
+                itemDateOnly.isAtSameMomentAs(weekEndOnly) ||
+                (itemDateOnly.isAfter(weekStartOnly) && itemDateOnly.isBefore(weekEndOnly)));
         
       case 'month':
-        final monthStart = DateTime(now.year, now.month, 1);
-        final monthEnd = DateTime(now.year, now.month + 1, 0);
-        
-        return workLogs.where((log) {
-          return log.date.isAfter(monthStart.subtract(const Duration(days: 1))) &&
-                 log.date.isBefore(monthEnd.add(const Duration(days: 1)));
-        }).toList();
+        // Month view: date is in current month (year and month match)
+        final itemDate = DateTime.parse(itemDateStr);
+        return itemDate.year == currentDate.value.year &&
+               itemDate.month == currentDate.value.month;
         
       default:
-        return workLogs;
+        return true;
     }
+  }
+
+  /// Get filtered work logs based on active period
+  /// Uses shared filter function for consistency
+  List<WorkLog> getFilteredWorkLogs() {
+    return workLogs.where((log) {
+      // Convert log date to YYYY-MM-DD format
+      final logDateStr = _formatDateString(log.date);
+      return _isDateInFilter(logDateStr);
+    }).toList();
   }
 
   /// Get status color for badge
@@ -648,11 +693,6 @@ double get totalHours =>
     }
   }
 
-  /// Format date to YYYY-MM-DD string
-  String _formatDateString(DateTime date) {
-    return '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
-  }
-
   /// Map API event data to CalendarEvent model
   CalendarEvent? _mapEventToCalendarEvent(Map<String, dynamic> eventData) {
     try {
@@ -744,47 +784,16 @@ double get totalHours =>
   }
 
   /// Filter events by date based on active tab
-  /// Day: Show only today's events
+  /// Uses shared filter function for consistency with work hours
+  /// Day: Show only events for selected date
   /// Week: Show events in current week
   /// Month: Show events in current month
   List<CalendarEvent> _filterEventsByDate(List<CalendarEvent> events) {
-    final now = DateTime.now();
-    
-    switch (activeTab.value) {
-      case 'day':
-        // Show only events for the selected day
-        final selectedDate = DateTime(currentDate.value.year, currentDate.value.month, currentDate.value.day);
-        return events.where((event) {
-          final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
-          return eventDate.isAtSameMomentAs(selectedDate);
-        }).toList();
-        
-      case 'week':
-        // Show events in current week
-        final weekDates = _getCurrentWeekDates();
-        final weekStart = weekDates.first;
-        final weekEnd = weekDates.last;
-        
-        return events.where((event) {
-          final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
-          return eventDate.isAfter(weekStart.subtract(const Duration(days: 1))) &&
-                 eventDate.isBefore(weekEnd.add(const Duration(days: 1)));
-        }).toList();
-        
-      case 'month':
-        // Show events in current month
-        final monthStart = DateTime(currentDate.value.year, currentDate.value.month, 1);
-        final monthEnd = DateTime(currentDate.value.year, currentDate.value.month + 1, 0);
-        
-        return events.where((event) {
-          final eventDate = DateTime(event.date.year, event.date.month, event.date.day);
-          return eventDate.isAfter(monthStart.subtract(const Duration(days: 1))) &&
-                 eventDate.isBefore(monthEnd.add(const Duration(days: 1)));
-        }).toList();
-        
-      default:
-        return events;
-    }
+    return events.where((event) {
+      // Convert event date to YYYY-MM-DD format
+      final eventDateStr = _formatDateString(event.date);
+      return _isDateInFilter(eventDateStr);
+    }).toList();
   }
 
   /// Get filtered calendar events for display
