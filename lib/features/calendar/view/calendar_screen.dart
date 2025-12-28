@@ -1081,15 +1081,19 @@ class CalendarScreen extends GetView<CalendarController> {
                               }).toList();
                               
                               // Use helper method to build cell content with overflow handling
-                              return _buildCellContent(
-                                context: context,
-                                meetings: hourEvents,
-                                workHours: hourWorkHours,
-                                dateStr: dateStr,
-                                userEmail: user,
-                                hour: hour,
-                                isDark: isDark,
-                                hasWorkHourBackground: hasWorkHourInThisSlot,
+                              // Wrap in SingleChildScrollView to prevent overflow
+                              return SingleChildScrollView(
+                                physics: const NeverScrollableScrollPhysics(),
+                                child: _buildCellContent(
+                                  context: context,
+                                  meetings: hourEvents,
+                                  workHours: hourWorkHours,
+                                  dateStr: dateStr,
+                                  userEmail: user,
+                                  hour: hour,
+                                  isDark: isDark,
+                                  hasWorkHourBackground: hasWorkHourInThisSlot,
+                                ),
                               );
                             },
                           ),
@@ -1195,8 +1199,10 @@ class CalendarScreen extends GetView<CalendarController> {
       return aMin.compareTo(bMin);
     });
 
-    // Determine how many items to show (2 max to prevent overflow)
-    const maxVisibleItems = 2;
+    // Determine how many items to show (1 max to prevent overflow in 80px cells)
+    // With padding (8px) and margins, we have ~72px available
+    // Each card needs ~30px, so only 1 card fits comfortably
+    const maxVisibleItems = 1;
     final visibleItems = allItems.take(maxVisibleItems).toList();
     final remainingCount = allItems.length - visibleItems.length;
     final hasOverflow = remainingCount > 0;
@@ -1216,76 +1222,83 @@ class CalendarScreen extends GetView<CalendarController> {
             ),
           ),
         
-        // CARDS FOREGROUND (content-driven Column)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Visible items
-            ...visibleItems.map((item) {
-              if (item.type == _CellItemType.meeting) {
-                return _buildMeetingCard(
-                  context,
-                  item.meeting!,
-                  controller,
-                  isDark,
-                );
-              } else {
-                return _buildWorkHourCard(
-                  context,
-                  item.workHour!,
-                  controller,
-                  isDark,
-                );
-              }
-            }),
-            
-            // Overflow indicator
-            if (hasOverflow)
-              InkWell(
-                onTap: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => CellCardsModal(
-                      meetings: meetings,
-                      workHours: workHours,
-                      dateStr: dateStr,
-                      userEmail: userEmail,
-                      hour: hour,
-                      isDark: isDark,
-                    ),
+        // CARDS FOREGROUND (content-driven Column with overflow protection)
+        ClipRect(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Visible items
+              ...visibleItems.map((item) {
+                if (item.type == _CellItemType.meeting) {
+                  return _buildMeetingCard(
+                    context,
+                    item.meeting!,
+                    controller,
+                    isDark,
                   );
-                },
-                child: Container(
-                  width: double.infinity,
-                  margin: const EdgeInsets.only(top: 4),
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? AppColors.mutedDark.withValues(alpha: 0.5)
-                        : AppColors.mutedLight.withValues(alpha: 0.5),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: isDark
-                          ? AppColors.borderDark
-                          : AppColors.borderLight,
-                      width: 1,
+                } else {
+                  return _buildWorkHourCard(
+                    context,
+                    item.workHour!,
+                    controller,
+                    isDark,
+                  );
+                }
+              }),
+              
+              // Overflow indicator
+              if (hasOverflow)
+                InkWell(
+                  onTap: () {
+                    showDialog(
+                      context: context,
+                      builder: (context) => CellCardsModal(
+                        meetings: meetings,
+                        workHours: workHours,
+                        dateStr: dateStr,
+                        userEmail: userEmail,
+                        hour: hour,
+                        isDark: isDark,
+                      ),
+                    );
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(top: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                    constraints: const BoxConstraints(
+                      maxHeight: 24,
                     ),
-                  ),
-                  child: Text(
-                    '+$remainingCount more',
-                    style: AppTextStyles.labelSmall.copyWith(
+                    decoration: BoxDecoration(
                       color: isDark
-                          ? AppColors.foregroundDark
-                          : AppColors.foregroundLight,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 10,
+                          ? AppColors.mutedDark.withValues(alpha: 0.5)
+                          : AppColors.mutedLight.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                        color: isDark
+                            ? AppColors.borderDark
+                            : AppColors.borderLight,
+                        width: 1,
+                      ),
                     ),
-                    textAlign: TextAlign.center,
+                    child: Text(
+                      '+$remainingCount more',
+                      style: AppTextStyles.labelSmall.copyWith(
+                        color: isDark
+                            ? AppColors.foregroundDark
+                            : AppColors.foregroundLight,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 9,
+                      ),
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
       ],
     );
@@ -1754,15 +1767,18 @@ class CalendarScreen extends GetView<CalendarController> {
                           }
                           
                           // Use helper method to build cell content with overflow handling
-                          return _buildCellContent(
-                            context: context,
-                            meetings: slotMeetings,
-                            workHours: hourWorkHours,
-                            dateStr: dateStr,
-                            userEmail: '',
-                            hour: hour,
-                            isDark: isDark,
-                            hasWorkHourBackground: hasWorkHourInThisSlot,
+                          // Wrap in ClipRect to prevent overflow from being visible
+                          return ClipRect(
+                            child: _buildCellContent(
+                              context: context,
+                              meetings: slotMeetings,
+                              workHours: hourWorkHours,
+                              dateStr: dateStr,
+                              userEmail: '',
+                              hour: hour,
+                              isDark: isDark,
+                              hasWorkHourBackground: hasWorkHourInThisSlot,
+                            ),
                           );
                         },
                       ),
@@ -2259,16 +2275,18 @@ class CalendarScreen extends GetView<CalendarController> {
                                   );
                                 }),
                                 
-                                // CARDS FOREGROUND (content-driven)
-                                _buildCellContent(
-                                  context: context,
-                                  meetings: hourEvents,
-                                  workHours: hourWorkHours,
-                                  dateStr: dateStr,
-                                  userEmail: user,
-                                  hour: hour,
-                                  isDark: isDark,
-                                  hasWorkHourBackground: hasWorkHourInThisSlot,
+                                // CARDS FOREGROUND (content-driven with overflow protection)
+                                ClipRect(
+                                  child: _buildCellContent(
+                                    context: context,
+                                    meetings: hourEvents,
+                                    workHours: hourWorkHours,
+                                    dateStr: dateStr,
+                                    userEmail: user,
+                                    hour: hour,
+                                    isDark: isDark,
+                                    hasWorkHourBackground: hasWorkHourInThisSlot,
+                                  ),
                                 ),
                               ],
                             );
