@@ -253,9 +253,9 @@ class CellCardsModal extends StatelessWidget {
         if (parts.length >= 2) {
           final h = int.parse(parts[0]);
           final m = parts[1];
-          final period = h >= 12 ? 'PM' : 'AM';
-          final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-          return '$displayHour:$m $period';
+          // Format as 24-hour: HH:mm
+          final hourStr = h.toString().padLeft(2, '0');
+          return '$hourStr:$m';
         }
         return timeStr;
       }

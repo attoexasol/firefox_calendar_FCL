@@ -1601,13 +1601,16 @@ class CalendarScreen extends GetView<CalendarController> {
     // Combine all items and sort by startTime
     final allItems = <_CellItem>[];
     
-    // Add meetings
+    // Add meetings (exclude work_hour category - they're already in workHours list)
     for (var meeting in meetings) {
-      allItems.add(_CellItem(
-        type: _CellItemType.meeting,
-        meeting: meeting,
-        startTime: meeting.startTime,
-      ));
+      // Skip meetings that are converted from work hours to avoid duplicates
+      if (meeting.category != 'work_hour') {
+        allItems.add(_CellItem(
+          type: _CellItemType.meeting,
+          meeting: meeting,
+          startTime: meeting.startTime,
+        ));
+      }
     }
     
     // Add work hours
@@ -1682,10 +1685,12 @@ class CalendarScreen extends GetView<CalendarController> {
             if (hasOverflow)
               InkWell(
                 onTap: () {
+                  // Filter out work_hour category meetings to avoid duplicates in modal
+                  final filteredMeetings = meetings.where((m) => m.category != 'work_hour').toList();
                   showDialog(
                     context: context,
                     builder: (context) => CellCardsModal(
-                      meetings: meetings,
+                      meetings: filteredMeetings,
                       workHours: workHours,
                       dateStr: dateStr,
                       userEmail: userEmail,
@@ -1807,13 +1812,14 @@ class CalendarScreen extends GetView<CalendarController> {
                                         final totalHours = totalMinutes / 60.0;
 
                                         String formatTime(String timeStr) {
+                                          // Handle time strings like "08:56:00" or "08:56"
                                           final parts = timeStr.split(':');
                                           if (parts.length >= 2) {
                                             final h = int.parse(parts[0]);
                                             final m = parts[1];
-                                            final period = h >= 12 ? 'PM' : 'AM';
-                                            final displayHour = h > 12 ? h - 12 : (h == 0 ? 12 : h);
-                                            return '$displayHour:$m $period';
+                                            // Format as 24-hour: HH:mm (remove seconds if present)
+                                            final hourStr = h.toString().padLeft(2, '0');
+                                            return '$hourStr:$m';
                                           }
                                           return timeStr;
                                         }
@@ -2225,20 +2231,22 @@ class CalendarScreen extends GetView<CalendarController> {
   }
 
   /// Format hour for display
-  /// Format hour in 24-hour format with AM/PM indicators (HH:00 AM/PM)
+  /// Format hour in 12-hour format with AM/PM (1:00 AM/PM to 12:00 AM/PM)
   String _formatHour(int hour) {
-    // Format as 24-hour with AM/PM: 00:00 AM to 23:00 PM
-    final hourStr = hour.toString().padLeft(2, '0');
-    
-    // Determine AM/PM based on hour
+    // Convert 24-hour to 12-hour format
     if (hour == 0) {
-      return '00:00 AM'; // Midnight
+      return '12:00 AM'; // Midnight
     } else if (hour < 12) {
-      return '$hourStr:00 AM'; // 01:00 AM to 11:00 AM
+      // 01:00 AM to 11:00 AM
+      final hourStr = hour.toString().padLeft(2, '0');
+      return '$hourStr:00 AM';
     } else if (hour == 12) {
       return '12:00 PM'; // Noon
     } else {
-      return '$hourStr:00 PM'; // 13:00 PM to 23:00 PM
+      // 01:00 PM to 11:00 PM (convert 13-23 to 1-11)
+      final displayHour = hour - 12;
+      final hourStr = displayHour.toString().padLeft(2, '0');
+      return '$hourStr:00 PM';
     }
   }
 

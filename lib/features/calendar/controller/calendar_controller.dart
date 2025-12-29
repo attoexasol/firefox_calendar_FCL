@@ -947,40 +947,10 @@ class CalendarController extends GetxController {
     return result;
   }
 
-  /// Get dynamic time range based on meetings
+  /// Get time range - always returns full 24 hours (00:00 to 23:00)
   TimeRange getTimeRange(List<Meeting> meetings) {
-    const defaultStart = 6; // 6 AM (as shown in screenshots)
-    const defaultEnd = 18; // 6 PM
-
-    if (meetings.isEmpty) {
-      return TimeRange(startHour: defaultStart, endHour: defaultEnd);
-    }
-
-    int earliestHour = defaultStart;
-    int latestHour = defaultEnd;
-
-    for (var meeting in meetings) {
-      final startParts = meeting.startTime.split(':');
-      final endParts = meeting.endTime.split(':');
-
-      final startHour = int.parse(startParts[0]);
-      final endHour = int.parse(endParts[0]);
-      final endMinute = int.parse(endParts[1]);
-
-      if (startHour < earliestHour) {
-        earliestHour = startHour;
-      }
-
-      final effectiveEndHour = endMinute > 0 ? endHour + 1 : endHour;
-      if (effectiveEndHour > latestHour) {
-        latestHour = effectiveEndHour;
-      }
-    }
-
-    earliestHour = earliestHour.clamp(6, 23); // Minimum 6 AM
-    latestHour = latestHour.clamp(6, 23);
-
-    return TimeRange(startHour: earliestHour, endHour: latestHour);
+    // Always return full 24-hour range
+    return TimeRange(startHour: 0, endHour: 23);
   }
 
   /// Get event color based on meeting type and status
