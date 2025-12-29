@@ -1,5 +1,6 @@
 import 'package:firefox_calendar/services/auth_service.dart';
 import 'package:firefox_calendar/features/hours/controller/hours_controller.dart';
+import 'package:firefox_calendar/features/calendar/controller/calendar_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -310,6 +311,26 @@ class DashboardController extends GetxController {
           print('⚠️ [DashboardController] Could not refresh Hours screen: $e');
           // Non-critical error - Hours screen will refresh when opened
         }
+        
+        // ============================================================
+        // AUTO-REFRESH CALENDAR SCREEN
+        // ============================================================
+        // After successful START API call, refresh Calendar screen data
+        // This ensures Calendar screen UI updates immediately without manual refresh
+        // Uses GetX controller access to trigger CalendarController refresh
+        try {
+          if (Get.isRegistered<CalendarController>()) {
+            final calendarController = Get.find<CalendarController>();
+            print('🔄 [DashboardController] Refreshing Calendar screen after START...');
+            await calendarController.refreshCalendarData();
+            print('✅ [DashboardController] Calendar screen refreshed successfully');
+          } else {
+            print('⚠️ [DashboardController] CalendarController not registered yet - will refresh when Calendar screen opens');
+          }
+        } catch (e) {
+          print('⚠️ [DashboardController] Could not refresh Calendar screen: $e');
+          // Non-critical error - Calendar screen will refresh when opened
+        }
       } else {
         Get.snackbar(
           'Error',
@@ -475,6 +496,26 @@ class DashboardController extends GetxController {
         } catch (e) {
           print('⚠️ [DashboardController] Could not refresh Hours screen: $e');
           // Non-critical error - Hours screen will refresh when opened
+        }
+        
+        // ============================================================
+        // AUTO-REFRESH CALENDAR SCREEN
+        // ============================================================
+        // After successful END API call, refresh Calendar screen data
+        // This ensures Calendar screen UI updates immediately without manual refresh
+        // Uses GetX controller access to trigger CalendarController refresh
+        try {
+          if (Get.isRegistered<CalendarController>()) {
+            final calendarController = Get.find<CalendarController>();
+            print('🔄 [DashboardController] Refreshing Calendar screen after END...');
+            await calendarController.refreshCalendarData();
+            print('✅ [DashboardController] Calendar screen refreshed successfully');
+          } else {
+            print('⚠️ [DashboardController] CalendarController not registered yet - will refresh when Calendar screen opens');
+          }
+        } catch (e) {
+          print('⚠️ [DashboardController] Could not refresh Calendar screen: $e');
+          // Non-critical error - Calendar screen will refresh when opened
         }
 
         Get.snackbar(

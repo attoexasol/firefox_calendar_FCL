@@ -368,6 +368,15 @@ class CalendarController extends GetxController {
     await fetchWorkHours();
   }
 
+  /// Refresh calendar data (both events and work hours)
+  /// Called when work hours are created/updated to sync Calendar Screen
+  Future<void> refreshCalendarData() async {
+    print('🔄 [CalendarController] Refreshing calendar data...');
+    await fetchWorkHours(); // Refresh work hours first
+    await fetchAllEvents(); // Then refresh events (which will merge work hours)
+    print('✅ [CalendarController] Calendar data refreshed successfully');
+  }
+
   /// Fetch work hours from API for calendar overlay
   /// Only fetches approved work hours
   /// Uses same range and date logic as events
