@@ -192,34 +192,47 @@ class CalendarScreen extends GetView<CalendarController> {
       // Single horizontal scroll wrapping both header and body
       return LayoutBuilder(
         builder: (context, constraints) {
+          final availableHeight = constraints.maxHeight;
+          final headerHeight = 168.0; // Days row (60) + User header (80) + borders/spacing (28)
+          final bodyHeight = availableHeight > headerHeight 
+              ? availableHeight - headerHeight 
+              : 0.0;
+          
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
               width: totalWidth,
-              child: Column(
-                children: [
-                  // Header (Days/Dates Row + User Header Row)
-                  _buildWeekHeaderContent(
-                    weekDates,
-                    usersByDate,
-                    totalWidth,
-                    isDark,
-                  ),
-                  // Body (Time Grid - vertically scrollable)
-                  SizedBox(
-                    height: constraints.maxHeight - 168, // Subtract header height
-                    child: SingleChildScrollView(
-                      child: _buildWeekTimeGridContentNoScroll(
-                        context,
-                        usersByDate,
-                        weekDates,
-                        updatedMeetingsByDate,
-                        timeRange,
-                        isDark,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: availableHeight,
+                  maxHeight: availableHeight,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header (Days/Dates Row + User Header Row) - fixed height
+                    _buildWeekHeaderContent(
+                      weekDates,
+                      usersByDate,
+                      totalWidth,
+                      isDark,
+                    ),
+                    // Body (Time Grid - vertically scrollable) - takes remaining space
+                    SizedBox(
+                      height: bodyHeight,
+                      child: SingleChildScrollView(
+                        child: _buildWeekTimeGridContentNoScroll(
+                          context,
+                          usersByDate,
+                          weekDates,
+                          updatedMeetingsByDate,
+                          timeRange,
+                          isDark,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -276,33 +289,46 @@ class CalendarScreen extends GetView<CalendarController> {
       // Single horizontal scroll wrapping both header and body
       return LayoutBuilder(
         builder: (context, constraints) {
+          final availableHeight = constraints.maxHeight;
+          final headerHeight = 80.0;
+          final bodyHeight = availableHeight > headerHeight 
+              ? availableHeight - headerHeight 
+              : 0.0;
+          
           return SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: SizedBox(
               width: totalWidth,
-              child: Column(
-                children: [
-                  // Header (User Header Row)
-                  _buildDayHeaderContent(
-                    users,
-                    totalWidth,
-                    isDark,
-                  ),
-                  // Body (Time Grid - vertically scrollable)
-                  SizedBox(
-                    height: constraints.maxHeight - 80, // Subtract header height
-                    child: SingleChildScrollView(
-                      child: _buildDayTimeGridContentNoScroll(
-                        context,
-                        users,
-                        dateStr,
-                        filteredMeetings,
-                        timeRange,
-                        isDark,
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: availableHeight,
+                  maxHeight: availableHeight,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Header (User Header Row) - fixed height
+                    _buildDayHeaderContent(
+                      users,
+                      totalWidth,
+                      isDark,
+                    ),
+                    // Body (Time Grid - vertically scrollable) - takes remaining space
+                    SizedBox(
+                      height: bodyHeight,
+                      child: SingleChildScrollView(
+                        child: _buildDayTimeGridContentNoScroll(
+                          context,
+                          users,
+                          dateStr,
+                          filteredMeetings,
+                          timeRange,
+                          isDark,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
