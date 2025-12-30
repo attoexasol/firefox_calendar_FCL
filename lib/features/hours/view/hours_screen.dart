@@ -351,9 +351,9 @@ class HoursScreen extends GetView<HoursController> {
         return SliverFillRemaining(
           hasScrollBody: false,
           child: const Center(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 48),
-              child: CircularProgressIndicator(),
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 48),
+            child: CircularProgressIndicator(),
             ),
           ),
         );
@@ -363,14 +363,14 @@ class HoursScreen extends GetView<HoursController> {
         return SliverFillRemaining(
           hasScrollBody: false,
           child: Center(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 48),
-              child: Text(
-                'No work hour entries found for this period',
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: isDark
-                      ? AppColors.mutedForegroundDark
-                      : const Color(0xFF6B7280),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 48),
+            child: Text(
+              'No work hour entries found for this period',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: isDark
+                    ? AppColors.mutedForegroundDark
+                    : const Color(0xFF6B7280),
                 ),
               ),
             ),
@@ -390,7 +390,7 @@ class HoursScreen extends GetView<HoursController> {
               );
             }
             return _buildWorkLogCard(filteredLogs[index], isDark);
-          },
+        },
           childCount: filteredLogs.length,
         ),
       );
@@ -740,16 +740,16 @@ class HoursScreen extends GetView<HoursController> {
           if (index == 0) {
             // First item: Section Header
             return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Text(
-                'Calendar Events',
-                style: AppTextStyles.labelLarge.copyWith(
-                  color: isDark
-                      ? AppColors.foregroundDark
-                      : AppColors.foregroundLight,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(
+            'Calendar Events',
+            style: AppTextStyles.labelLarge.copyWith(
+              color: isDark
+                  ? AppColors.foregroundDark
+                  : AppColors.foregroundLight,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
             );
           } else if (index <= filteredEvents.length) {
             // Event cards (index 1 to length)
@@ -764,15 +764,15 @@ class HoursScreen extends GetView<HoursController> {
             // Last item: Separator after all events
             return Column(
               children: [
-                Divider(
-                  height: 1,
-                  thickness: 1,
-                  color: isDark 
-                      ? AppColors.borderDark 
-                      : AppColors.borderLight,
-                ),
-                const SizedBox(height: 16),
-              ],
+        Divider(
+          height: 1,
+          thickness: 1,
+          color: isDark 
+              ? AppColors.borderDark 
+              : AppColors.borderLight,
+        ),
+        const SizedBox(height: 16),
+      ],
             );
           }
         },

@@ -430,7 +430,7 @@ class CalendarController extends GetxController {
         final mappedHours = hoursList
             .map((hourData) => _mapWorkHourFromApi(hourData))
             .where((hour) => hour != null && 
-                           hour!.status.toLowerCase() == 'approved' &&
+                           hour.status.toLowerCase() == 'approved' &&
                            hour.loginTime.isNotEmpty &&
                            hour.logoutTime.isNotEmpty)
             .cast<WorkHour>()

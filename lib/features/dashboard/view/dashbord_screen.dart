@@ -41,12 +41,7 @@ class DashboardScreen extends GetView<DashboardController> {
 
               const SizedBox(height: 16), // Space for bottom nav
 
-              // Show loading state while fetching dashboard summary
-              Obx(
-                () => controller.isLoadingSummary.value
-                    ? _buildLoadingMetricsGrid(isDark)
-                    : _buildMetricsGrid(isDark),
-              ),
+              _buildMetricsGrid(isDark),
 
               const SizedBox(height: 16),
             ],
@@ -208,10 +203,10 @@ class DashboardScreen extends GetView<DashboardController> {
   // - Accepts backend summary as source of truth
   // 
   // Backend API Response Mapping:
-  // - hours_today → hoursToday → "Hours Today"
+  // - hours_first_day → hoursToday → "Hours Today"
   // - hours_this_week → hoursThisWeek → "Hours This Week"
   // - event_this_week → eventsThisWeek → "Events This Week"
-  // - leave_application_this_week → leaveThisWeek → "Leave This Week"
+  // - leave_this_week → leaveThisWeek → "Leave This Week" (default "0", not in API)
   // 
   // IMPORTANT: Dashboard totals may differ from Hours screen totals
   // - Dashboard = Backend summary calculation (may include auto-approval)
@@ -230,7 +225,7 @@ class DashboardScreen extends GetView<DashboardController> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
-        // Card 1: Hours Today (maps from backend: hours_today)
+        // Card 1: Hours Today (maps from backend: hours_first_day)
         // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
@@ -263,78 +258,20 @@ class DashboardScreen extends GetView<DashboardController> {
             isDark: isDark,
           ),
         ),
-        // Card 4: Leave This Week (maps from backend: leave_application_this_week)
+        // Card 4: Leave This Week
+        // Note: Not in API response - always shows default "0"
+        // Card remains visible for UI consistency
         // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
             icon: Icons.umbrella,
             iconColor: const Color(0xFFE7000B),
-            value: controller.leaveThisWeek.value, // From API: leave_application_this_week
+            value: controller.leaveThisWeek.value, // Always "0" (not in API response)
             subtitle: "Leave This Week",
             isDark: isDark,
           ),
         ),
       ],
-    );
-  }
-
-  /// Build loading state for metrics grid
-  /// Shows skeleton/loading indicators while fetching dashboard summary
-  Widget _buildLoadingMetricsGrid(bool isDark) {
-    return GridView.count(
-      crossAxisCount: 2,
-      crossAxisSpacing: 12,
-      mainAxisSpacing: 12,
-      childAspectRatio: 174.86 / 110.85,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      children: List.generate(4, (index) {
-        return Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: isDark ? AppColors.cardDark : Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(
-              color: isDark ? AppColors.borderDark : Colors.black.withValues(alpha: 0.10),
-              width: 1.48,
-              strokeAlign: BorderSide.strokeAlignInside,
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              // Loading icon placeholder
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.mutedDark : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              // Loading value placeholder
-              Container(
-                width: 40,
-                height: 24,
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.mutedDark : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-              // Loading subtitle placeholder
-              Container(
-                width: 80,
-                height: 16,
-                decoration: BoxDecoration(
-                  color: isDark ? AppColors.mutedDark : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ],
-          ),
-        );
-      }),
     );
   }
 
