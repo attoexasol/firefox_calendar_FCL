@@ -68,8 +68,7 @@ class CalendarController extends GetxController {
   void onInit() {
     super.onInit();
     _loadUserData();
-    fetchAllEvents(); // Fetch events from API on init
-    fetchWorkHours(); // Fetch work hours for calendar overlay
+    fetchAllEvents(); // Fetch events from API on init (will also fetch work hours)
   }
 
   /// Load user data from storage
@@ -163,9 +162,10 @@ class CalendarController extends GetxController {
         // Store all meetings (for "Everyone" view)
         allMeetings.value = uniqueMeetings.values.toList();
         
-        // Convert approved work hours to Meeting objects and merge into allMeetings
-        // This allows work hours to be rendered using existing Meeting rendering logic
-        _mergeWorkHoursAsMeetings();
+        // Fetch and merge work hours BEFORE scope filtering
+        // Work hours are now converted directly to Meeting objects in fetchWorkHours
+        // and merged into allMeetings, so they go through the same filtering/grouping as events
+        await fetchWorkHours();
         
         // Debug: Print all event dates
         print('📅 [CalendarController] All events dates:');
@@ -173,7 +173,7 @@ class CalendarController extends GetxController {
           print('   - ${meeting.title}: ${meeting.date} ${meeting.startTime} (userId: ${meeting.userId}, category: ${meeting.category ?? 'event'})');
         }
         
-        // Apply scope filter to update displayed meetings
+        // Apply scope filter to update displayed meetings (work hours included)
         _applyScopeFilter();
         
         print('✅ [CalendarController] Fetched ${allMeetings.length} events (${meetings.length} after filtering)');
@@ -362,24 +362,22 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] Refreshing events...');
     // Reload user data in case it changed
     _loadUserData();
-    // Fetch fresh events from API
+    // Fetch fresh events from API (will also fetch and merge work hours)
     await fetchAllEvents();
-    // Also refresh work hours
-    await fetchWorkHours();
   }
 
   /// Refresh calendar data (both events and work hours)
   /// Called when work hours are created/updated to sync Calendar Screen
   Future<void> refreshCalendarData() async {
     print('🔄 [CalendarController] Refreshing calendar data...');
-    await fetchWorkHours(); // Refresh work hours first
-    await fetchAllEvents(); // Then refresh events (which will merge work hours)
+    await fetchAllEvents(); // Refresh events (which will also fetch and merge work hours)
     print('✅ [CalendarController] Calendar data refreshed successfully');
   }
 
   /// Fetch work hours from API for calendar overlay
-  /// Only fetches approved work hours
-  /// Uses same range and date logic as events
+  /// API returns user-wise grouped data: data = [{ user: {...}, hours: [...] }]
+  /// Converts each approved work hour directly to Meeting with category='work_hour'
+  /// Merges into allMeetings BEFORE scope filtering and date grouping
   Future<void> fetchWorkHours() async {
     try {
       isLoadingWorkHours.value = true;
@@ -398,7 +396,7 @@ class CalendarController extends GetxController {
       final currentDateStr = _formatDateString(currentDate.value);
 
       print('═══════════════════════════════════════════════════════════');
-      print('⏰ [CalendarController] Fetching work hours for overlay...');
+      print('⏰ [CalendarController] Fetching work hours (user-wise grouped)...');
       print('   Range: ${range ?? 'none'}');
       print('   Current Date: $currentDateStr');
       print('   Scope: ${scopeType.value}');
@@ -415,48 +413,104 @@ class CalendarController extends GetxController {
       if (result['success'] == true && result['data'] != null) {
         final data = result['data'];
         
-        // Handle both single object and list
-        List<dynamic> hoursList;
+        // Handle new user-wise grouped structure: data = [{ user: {...}, hours: [...] }]
+        List<dynamic> userHoursList;
         if (data is List) {
-          hoursList = data;
+          userHoursList = data;
         } else if (data is Map) {
-          hoursList = [data];
+          userHoursList = [data];
         } else {
-          hoursList = [];
+          userHoursList = [];
         }
 
-        // Map API response to WorkHour objects
-        // Filter to only include approved work hours with both login and logout times
-        final mappedHours = hoursList
-            .map((hourData) => _mapWorkHourFromApi(hourData))
-            .where((hour) => hour != null && 
-                           hour.status.toLowerCase() == 'approved' &&
-                           hour.loginTime.isNotEmpty &&
-                           hour.logoutTime.isNotEmpty)
-            .cast<WorkHour>()
-            .toList();
-
-        workHours.value = mappedHours;
-
-        print('✅ [CalendarController] Fetched ${workHours.length} approved work hours');
+        // Convert each user's approved work hours to Meeting objects
+        final workHourMeetings = <Meeting>[];
         
-        // Convert approved work hours to Meeting objects and merge into allMeetings
-        // This allows work hours to be rendered using existing Meeting rendering logic
-        // Note: This will be called after events are fetched, so work hours will be merged
-        // The merge happens in fetchAllEvents after events are loaded
-        // If events are already loaded, merge now
+        for (var userHoursData in userHoursList) {
+          if (userHoursData is! Map<String, dynamic>) continue;
+          
+          // Extract user info
+          final userData = userHoursData['user'] as Map<String, dynamic>?;
+          if (userData == null) continue;
+          
+          final userId = userData['id'] is int 
+              ? userData['id'] as int 
+              : int.tryParse(userData['id']?.toString() ?? '') ?? 0;
+          
+          String userEmail = '';
+          if (userData['email'] != null) {
+            userEmail = userData['email'].toString();
+          } else if (userData['first_name'] != null) {
+            final firstName = userData['first_name'].toString().toLowerCase().replaceAll(' ', '');
+            userEmail = '$firstName@user.com';
+          }
+          
+          // Extract hours array
+          final hoursList = userHoursData['hours'] as List<dynamic>?;
+          if (hoursList == null || hoursList.isEmpty) continue;
+          
+          // Convert each approved work hour to Meeting
+          for (var hourData in hoursList) {
+            if (hourData is! Map<String, dynamic>) continue;
+            
+            // Only process approved work hours with both login_time and logout_time
+            final status = hourData['status']?.toString().toLowerCase() ?? 'pending';
+            if (status != 'approved') continue;
+            
+            if (hourData['login_time'] == null || hourData['logout_time'] == null) continue;
+            
+            // Convert work hour to Meeting
+            final meeting = _convertWorkHourDataToMeeting(
+              hourData: hourData,
+              userId: userId,
+              userEmail: userEmail,
+            );
+            
+            if (meeting != null) {
+              workHourMeetings.add(meeting);
+            }
+          }
+        }
+
+        // Store work hours for backward compatibility (used by getWorkHoursForUser)
+        // Convert back to WorkHour objects for the old list
+        workHours.value = workHourMeetings.map((meeting) {
+          return _convertMeetingToWorkHour(meeting);
+        }).where((hour) => hour != null).cast<WorkHour>().toList();
+
+        print('✅ [CalendarController] Fetched ${workHourMeetings.length} approved work hours from ${userHoursList.length} users');
+        
+        // Remove existing work hour meetings (to avoid duplicates on re-merge)
+        allMeetings.removeWhere((m) => m.id.startsWith('work_hour_'));
+        
+        // Merge work hours into allMeetings BEFORE filtering/grouping
+        allMeetings.addAll(workHourMeetings);
+        
+        print('✅ [CalendarController] Merged ${workHourMeetings.length} work hours into allMeetings');
+        print('   Total meetings (events + work hours): ${allMeetings.length}');
+        
+        // If events are already loaded, apply scope filter to update displayed meetings
         if (allMeetings.isNotEmpty) {
-          _mergeWorkHoursAsMeetings();
           _applyScopeFilter();
         }
       } else {
         print('⚠️ [CalendarController] Failed to fetch work hours: ${result['message']}');
         workHours.value = [];
+        // Remove existing work hour meetings on error
+        allMeetings.removeWhere((m) => m.id.startsWith('work_hour_'));
+        if (allMeetings.isNotEmpty) {
+          _applyScopeFilter();
+        }
       }
     } catch (e) {
       isLoadingWorkHours.value = false;
       print('💥 [CalendarController] Error fetching work hours: $e');
       workHours.value = [];
+      // Remove existing work hour meetings on error
+      allMeetings.removeWhere((m) => m.id.startsWith('work_hour_'));
+      if (allMeetings.isNotEmpty) {
+        _applyScopeFilter();
+      }
     }
   }
 
@@ -562,23 +616,25 @@ class CalendarController extends GetxController {
   /// Get work hours for a specific user and date
   /// Used for rendering work hours overlay in calendar grid
   /// Returns ONLY approved work hours with both login_time and logout_time
+  /// Now extracts from filtered meetings (respects scope filter) for consistency
   List<WorkHour> getWorkHoursForUser(String userEmail, String dateStr) {
-    return workHours.where((hour) {
+    // Extract work hours from filtered meetings (respects scope: everyone/myself)
+    // This ensures work hours match the same filtering as events
+    final workHourMeetings = meetings.where((meeting) {
+      // Only work hours
+      if (meeting.category != 'work_hour') return false;
       // Match by date
-      if (hour.date != dateStr) return false;
-      
-      // Match by user email (for Everyone view) or current user (for Myself view)
-      if (scopeType.value == 'myself') {
-        return hour.userEmail == userEmail || hour.userId == userId.value;
-      } else {
-        return hour.userEmail == userEmail;
-      }
-    }).where((hour) {
-      // Additional filter: Only approved work hours with both login and logout times
-      return hour.status.toLowerCase() == 'approved' &&
-             hour.loginTime.isNotEmpty &&
-             hour.logoutTime.isNotEmpty;
+      if (meeting.date != dateStr) return false;
+      // Match by user email
+      return meeting.creator == userEmail || meeting.userId == userId.value;
     }).toList();
+    
+    // Convert meetings back to WorkHour objects for backward compatibility
+    return workHourMeetings
+        .map((meeting) => _convertMeetingToWorkHour(meeting))
+        .where((hour) => hour != null)
+        .cast<WorkHour>()
+        .toList();
   }
 
   /// Convert approved WorkHour objects to Meeting objects
@@ -607,6 +663,112 @@ class CalendarController extends GetxController {
     
     print('✅ [CalendarController] Merged ${workHourMeetings.length} work hours as meetings');
     print('   Total meetings (events + work hours): ${allMeetings.length}');
+  }
+
+  /// Convert raw API work hour data directly to Meeting object
+  /// Used when parsing new user-wise grouped API response
+  /// Returns Meeting with category='work_hour' for approved hours only
+  Meeting? _convertWorkHourDataToMeeting({
+    required Map<String, dynamic> hourData,
+    required int userId,
+    required String userEmail,
+  }) {
+    try {
+      // Only process approved work hours
+      final status = hourData['status']?.toString().toLowerCase() ?? 'pending';
+      if (status != 'approved') return null;
+      
+      // Parse date
+      String formattedDate = '';
+      if (hourData['date'] != null) {
+        final dateStr = hourData['date'].toString();
+        try {
+          String datePart = dateStr;
+          if (dateStr.contains('T')) {
+            datePart = dateStr.split('T')[0];
+          }
+          final date = DateTime.parse(datePart);
+          formattedDate = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+        } catch (e) {
+          print('⚠️ [CalendarController] Error parsing work hour date: $e');
+          return null;
+        }
+      } else {
+        return null;
+      }
+
+      // Parse login_time (start time)
+      String loginTime = '';
+      if (hourData['login_time'] != null) {
+        final loginTimeStr = hourData['login_time'].toString();
+        if (loginTimeStr.contains('T')) {
+          final timePart = loginTimeStr.split('T')[1].split(':');
+          loginTime = '${timePart[0]}:${timePart[1]}';
+        } else if (loginTimeStr.contains(' ')) {
+          final timePart = loginTimeStr.split(' ')[1].split(':');
+          loginTime = '${timePart[0]}:${timePart[1]}';
+        } else {
+          loginTime = loginTimeStr;
+        }
+      } else {
+        return null; // Must have login time
+      }
+
+      // Parse logout_time (end time)
+      String logoutTime = '';
+      if (hourData['logout_time'] != null) {
+        final logoutTimeStr = hourData['logout_time'].toString();
+        if (logoutTimeStr.contains('T')) {
+          final timePart = logoutTimeStr.split('T')[1].split(':');
+          logoutTime = '${timePart[0]}:${timePart[1]}';
+        } else if (logoutTimeStr.contains(' ')) {
+          final timePart = logoutTimeStr.split(' ')[1].split(':');
+          logoutTime = '${timePart[0]}:${timePart[1]}';
+        } else {
+          logoutTime = logoutTimeStr;
+        }
+      } else {
+        return null; // Must have logout time
+      }
+
+      // Format time for display (HH:MM format)
+      String formatTime(String timeStr) {
+        final parts = timeStr.split(':');
+        if (parts.length >= 2) {
+          return '${parts[0]}:${parts[1]}';
+        }
+        return timeStr;
+      }
+
+      // Use work hour ID with prefix to avoid conflicts with event IDs
+      final hourId = hourData['id']?.toString() ?? '';
+      if (hourId.isEmpty) return null;
+      final meetingId = 'work_hour_$hourId';
+      
+      // Create title showing time range (e.g., "Work Hours 07:00 – 10:00")
+      final formattedStart = formatTime(loginTime);
+      final formattedEnd = formatTime(logoutTime);
+      final title = 'Work Hours $formattedStart – $formattedEnd';
+
+      return Meeting(
+        id: meetingId,
+        title: title,
+        date: formattedDate,
+        startTime: formatTime(loginTime),
+        endTime: formatTime(logoutTime),
+        primaryEventType: null,
+        meetingType: null,
+        type: 'confirmed', // Work hours are always confirmed/approved
+        creator: userEmail,
+        attendees: [userEmail],
+        category: 'work_hour', // Use 'work_hour' to differentiate from regular events
+        description: 'Work hours entry',
+        userId: userId,
+      );
+    } catch (e) {
+      print('⚠️ [CalendarController] Error converting work hour data to meeting: $e');
+      return null;
+    }
   }
 
   /// Convert a WorkHour object to a Meeting object
@@ -660,6 +822,31 @@ class CalendarController extends GetxController {
       );
     } catch (e) {
       print('⚠️ [CalendarController] Error converting work hour to meeting: $e');
+      return null;
+    }
+  }
+
+  /// Convert a Meeting object (with category='work_hour') back to WorkHour object
+  /// Used for backward compatibility with getWorkHoursForUser method
+  WorkHour? _convertMeetingToWorkHour(Meeting meeting) {
+    if (meeting.category != 'work_hour') return null;
+    
+    try {
+      // Extract work hour ID from meeting ID (format: 'work_hour_123')
+      final hourId = meeting.id.replaceFirst('work_hour_', '');
+      if (hourId.isEmpty) return null;
+      
+      return WorkHour(
+        id: hourId,
+        date: meeting.date,
+        loginTime: meeting.startTime,
+        logoutTime: meeting.endTime,
+        userId: meeting.userId,
+        userEmail: meeting.creator,
+        status: 'approved', // All work hours in calendar are approved
+      );
+    } catch (e) {
+      print('⚠️ [CalendarController] Error converting meeting to work hour: $e');
       return null;
     }
   }

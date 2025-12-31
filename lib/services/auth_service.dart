@@ -1612,10 +1612,9 @@ class AuthService {
         
         if (summaryData != null) {
           print('📊 [AuthService] Dashboard Summary Data (Backend Format):');
-          print('   hours_today: ${summaryData['hours_today']} → "Hours Today"');
+          print('   hours_first_day: ${summaryData['hours_first_day']} → "Hours Today"');
           print('   hours_this_week: ${summaryData['hours_this_week']} → "Hours This Week"');
           print('   event_this_week: ${summaryData['event_this_week']} → "Events This Week"');
-          print('   leave_application_this_week: ${summaryData['leave_application_this_week']} → "Leave This Week"');
         }
         
         return {
