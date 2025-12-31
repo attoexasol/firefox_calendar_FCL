@@ -1536,13 +1536,14 @@ class AuthService {
   /// 
   /// Endpoint: POST /api/dashboard/summary
   /// 
-  /// Backend Response Format (FIXED - DO NOT CHANGE):
+  /// Backend Response Format:
   /// {
   ///   "status": true,
   ///   "data": {
-  ///     "hours_first_day": number,    // Maps to "Hours Today"
-  ///     "hours_this_week": number,    // Maps to "Hours This Week"
-  ///     "event_this_week": number     // Maps to "Events This Week"
+  ///     "hours_today": number,                // Maps to "Hours Today"
+  ///     "hours_this_week": number,            // Maps to "Hours This Week"
+  ///     "event_this_week": number,            // Maps to "Events This Week"
+  ///     "leave_application_this_week": number // Maps to "Leave This Week"
   ///   }
   /// }
   /// 
@@ -1612,9 +1613,10 @@ class AuthService {
         
         if (summaryData != null) {
           print('📊 [AuthService] Dashboard Summary Data (Backend Format):');
-          print('   hours_first_day: ${summaryData['hours_first_day']} → "Hours Today"');
+          print('   hours_today: ${summaryData['hours_today']} → "Hours Today"');
           print('   hours_this_week: ${summaryData['hours_this_week']} → "Hours This Week"');
           print('   event_this_week: ${summaryData['event_this_week']} → "Events This Week"');
+          print('   leave_application_this_week: ${summaryData['leave_application_this_week']} → "Leave This Week"');
         }
         
         return {

@@ -41,6 +41,8 @@ class DashboardScreen extends GetView<DashboardController> {
 
               const SizedBox(height: 16), // Space for bottom nav
 
+              // Metrics grid with loading state handling
+              // Loading state is handled safely - values update reactively via Obx
               _buildMetricsGrid(isDark),
 
               const SizedBox(height: 16),
@@ -203,10 +205,10 @@ class DashboardScreen extends GetView<DashboardController> {
   // - Accepts backend summary as source of truth
   // 
   // Backend API Response Mapping:
-  // - hours_first_day → hoursToday → "Hours Today"
+  // - hours_today → hoursToday → "Hours Today"
   // - hours_this_week → hoursThisWeek → "Hours This Week"
   // - event_this_week → eventsThisWeek → "Events This Week"
-  // - leave_this_week → leaveThisWeek → "Leave This Week" (default "0", not in API)
+  // - leave_application_this_week → leaveThisWeek → "Leave This Week"
   // 
   // IMPORTANT: Dashboard totals may differ from Hours screen totals
   // - Dashboard = Backend summary calculation (may include auto-approval)
@@ -225,7 +227,7 @@ class DashboardScreen extends GetView<DashboardController> {
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
       children: [
-        // Card 1: Hours Today (maps from backend: hours_first_day)
+        // Card 1: Hours Today (maps from backend: hours_today)
         // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
@@ -258,15 +260,13 @@ class DashboardScreen extends GetView<DashboardController> {
             isDark: isDark,
           ),
         ),
-        // Card 4: Leave This Week
-        // Note: Not in API response - always shows default "0"
-        // Card remains visible for UI consistency
+        // Card 4: Leave This Week (maps from backend: leave_application_this_week)
         // Dashboard = Summary only - NO approval/pending badges
         Obx(
           () => _buildMetricCard(
             icon: Icons.umbrella,
             iconColor: const Color(0xFFE7000B),
-            value: controller.leaveThisWeek.value, // Always "0" (not in API response)
+            value: controller.leaveThisWeek.value, // From API: leave_application_this_week
             subtitle: "Leave This Week",
             isDark: isDark,
           ),

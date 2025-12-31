@@ -51,16 +51,17 @@ class DashboardController extends GetxController {
   // {
   //   "status": true,
   //   "data": {
-  //     "hours_first_day": number,    → hoursToday (displayed as "Hours Today")
-  //     "hours_this_week": number,     → hoursThisWeek (displayed as "Hours This Week")
-  //     "event_this_week": number      → eventsThisWeek (displayed as "Events This Week")
+  //     "hours_today": number,                → hoursToday (displayed as "Hours Today")
+  //     "hours_this_week": number,           → hoursThisWeek (displayed as "Hours This Week")
+  //     "event_this_week": number,            → eventsThisWeek (displayed as "Events This Week")
+  //     "leave_application_this_week": number → leaveThisWeek (displayed as "Leave This Week")
   //   }
   // }
-  // Note: leaveThisWeek is not in API response, but kept visible in UI with default value "0"
-  final RxString hoursToday = '0'.obs;        // Maps from backend: hours_first_day
+  // All values come from API - no hard-coded defaults
+  final RxString hoursToday = '0'.obs;        // Maps from backend: hours_today
   final RxString hoursThisWeek = '0'.obs;     // Maps from backend: hours_this_week
   final RxString eventsThisWeek = '0'.obs;    // Maps from backend: event_this_week
-  final RxString leaveThisWeek = '0'.obs;     // Not in API response - kept visible with default "0"
+  final RxString leaveThisWeek = '0'.obs;     // Maps from backend: leave_application_this_week
   
   // Loading state for dashboard summary
   final RxBool isLoadingSummary = false.obs;
@@ -799,13 +800,14 @@ class DashboardController extends GetxController {
   /// 
   /// Backend API: POST /api/dashboard/summary
   /// 
-  /// Backend Response Format (FIXED - DO NOT CHANGE):
+  /// Backend Response Format:
   /// {
   ///   "status": true,
   ///   "data": {
-  ///     "hours_first_day": number,    // Maps to "Hours Today"
-  ///     "hours_this_week": number,    // Maps to "Hours This Week"
-  ///     "event_this_week": number     // Maps to "Events This Week"
+  ///     "hours_today": number,                // Maps to "Hours Today"
+  ///     "hours_this_week": number,            // Maps to "Hours This Week"
+  ///     "event_this_week": number,            // Maps to "Events This Week"
+  ///     "leave_application_this_week": number // Maps to "Leave This Week"
   ///   }
   /// }
   /// 
@@ -844,9 +846,10 @@ class DashboardController extends GetxController {
   /// - Default to 0 if any field is missing
   /// - Parse response safely with null checks
   /// - Map backend fields correctly to UI labels:
-  ///   - hours_first_day → hoursToday → "Hours Today"
+  ///   - hours_today → hoursToday → "Hours Today"
   ///   - hours_this_week → hoursThisWeek → "Hours This Week"
   ///   - event_this_week → eventsThisWeek → "Events This Week"
+  ///   - leave_application_this_week → leaveThisWeek → "Leave This Week"
   Future<void> fetchDashboardSummary() async {
     if (isLoadingSummary.value) return;
 
@@ -854,9 +857,10 @@ class DashboardController extends GetxController {
       isLoadingSummary.value = true;
       print('🔄 [DashboardController] Fetching dashboard summary from API');
       print('   📋 Backend Response Format:');
-      print('      - hours_first_day → "Hours Today"');
+      print('      - hours_today → "Hours Today"');
       print('      - hours_this_week → "Hours This Week"');
       print('      - event_this_week → "Events This Week"');
+      print('      - leave_application_this_week → "Leave This Week"');
       print('   ⚠️ IMPORTANT: Read-only display - no calculations on frontend');
 
       // Call API to get dashboard summary
@@ -871,10 +875,10 @@ class DashboardController extends GetxController {
           // CRITICAL: Default to 0 if any field is missing
           // CRITICAL: No approval logic inference - backend summary is source of truth
           
-          // Map: hours_first_day → hoursToday → "Hours Today"
+          // Map: hours_today → hoursToday → "Hours Today"
           // Backend calculates this - we only display it
-          final hoursFirstDayValue = summaryData['hours_first_day'];
-          hoursToday.value = _formatHours(hoursFirstDayValue);
+          final hoursTodayValue = summaryData['hours_today'];
+          hoursToday.value = _formatHours(hoursTodayValue);
           
           // Map: hours_this_week → hoursThisWeek → "Hours This Week"
           // Backend calculates this - we only display it
@@ -886,28 +890,42 @@ class DashboardController extends GetxController {
           final eventThisWeekValue = summaryData['event_this_week'];
           eventsThisWeek.value = (eventThisWeekValue ?? 0).toString();
           
-          // Leave card always shows default "0" (not in API response)
-          // This is intentional - card remains visible even without API data
-          leaveThisWeek.value = '0';
+          // Map: leave_application_this_week → leaveThisWeek → "Leave This Week"
+          // Backend calculates this - we only display it
+          final leaveApplicationThisWeekValue = summaryData['leave_application_this_week'];
+          leaveThisWeek.value = (leaveApplicationThisWeekValue ?? 0).toString();
 
           print('✅ [DashboardController] Dashboard summary updated (READ-ONLY):');
-          print('   hours_first_day: ${hoursFirstDayValue} → Hours Today: ${hoursToday.value}');
+          print('   hours_today: ${hoursTodayValue} → Hours Today: ${hoursToday.value}');
           print('   hours_this_week: ${hoursThisWeekValue} → Hours This Week: ${hoursThisWeek.value}');
           print('   event_this_week: ${eventThisWeekValue} → Events This Week: ${eventsThisWeek.value}');
+          print('   leave_application_this_week: ${leaveApplicationThisWeekValue} → Leave This Week: ${leaveThisWeek.value}');
           print('   ⚠️ NOTE: Dashboard totals may differ from Hours screen - this is expected');
           print('   ⚠️ Dashboard = summary (backend-calculated), Hours = detailed (per-entry)');
         } else {
           print('⚠️ [DashboardController] No summary data in API response - using defaults (0)');
-          // Keep default values (already set to '0')
+          // Reset to defaults if no data
+          hoursToday.value = '0';
+          hoursThisWeek.value = '0';
+          eventsThisWeek.value = '0';
+          leaveThisWeek.value = '0';
         }
       } else {
         print('❌ [DashboardController] Failed to fetch dashboard summary: ${result['message']}');
         print('   Using default values (0)');
-        // Keep default values on error (already set to '0')
+        // Reset to defaults on error
+        hoursToday.value = '0';
+        hoursThisWeek.value = '0';
+        eventsThisWeek.value = '0';
+        leaveThisWeek.value = '0';
       }
     } catch (e) {
       print('❌ [DashboardController] Error fetching dashboard summary: $e');
-      // Keep default values on error
+      // Reset to defaults on error
+      hoursToday.value = '0';
+      hoursThisWeek.value = '0';
+      eventsThisWeek.value = '0';
+      leaveThisWeek.value = '0';
     } finally {
       isLoadingSummary.value = false;
     }
