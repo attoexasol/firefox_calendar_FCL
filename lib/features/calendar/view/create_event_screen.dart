@@ -171,7 +171,7 @@ class CreateEventScreen extends GetView<CreateEventController> {
   Widget _buildStatus(bool isDark) {
     return Obx(
       () => DropdownButtonFormField<String>(
-        value: controller.status.value,
+        initialValue: controller.status.value,
         dropdownColor: isDark
             ? AppColors.inputBackgroundDark
             : AppColors.inputBackgroundLight,
@@ -179,7 +179,7 @@ class CreateEventScreen extends GetView<CreateEventController> {
           DropdownMenuItem(value: 'confirmed', child: Text('Confirmed')),
           DropdownMenuItem(value: 'tentative', child: Text('Tentative')),
         ],
-        onChanged: controller.status,
+        onChanged: controller.status.call,
         decoration: const InputDecoration(labelText: 'Status'),
       ),
     );
@@ -188,7 +188,7 @@ class CreateEventScreen extends GetView<CreateEventController> {
   Widget _buildEventType(bool isDark) {
     return Obx(
       () => DropdownButtonFormField<String>(
-        value:
+        initialValue:
             controller.eventType.value.isEmpty ? null : controller.eventType.value,
         dropdownColor: isDark
             ? AppColors.inputBackgroundDark

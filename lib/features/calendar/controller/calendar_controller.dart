@@ -63,12 +63,21 @@ class CalendarController extends GetxController {
   
   // Threshold for showing sticky header (in pixels)
   static const double stickyHeaderThreshold = 100.0;
+  
+  // Shared horizontal scroll controller for synchronizing header and content
+  final ScrollController horizontalScrollController = ScrollController();
 
   @override
   void onInit() {
     super.onInit();
     _loadUserData();
     fetchAllEvents(); // Fetch events from API on init (will also fetch work hours)
+  }
+
+  @override
+  void onClose() {
+    horizontalScrollController.dispose();
+    super.onClose();
   }
 
   /// Load user data from storage

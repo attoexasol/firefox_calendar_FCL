@@ -227,7 +227,7 @@ class DashboardController extends GetxController {
 
       final now = DateTime.now();
       final todayStr = now.toIso8601String().split('T')[0];
-      final currentDateTime = '${now.toIso8601String().split('.')[0]}'; // Format: "2025-12-17T09:00:00"
+      final currentDateTime = now.toIso8601String().split('.')[0]; // Format: "2025-12-17T09:00:00"
       final loginTime = currentDateTime.replaceAll('T', ' '); // Format: "2025-12-17 09:00:00"
 
       print('🟢 [DashboardController] Creating new work hours entry');
@@ -413,7 +413,7 @@ class DashboardController extends GetxController {
 
       final now = DateTime.now();
       final todayStr = now.toIso8601String().split('T')[0];
-      final currentDateTime = '${now.toIso8601String().split('.')[0]}'; // Format: "2025-12-17T18:00:00"
+      final currentDateTime = now.toIso8601String().split('.')[0]; // Format: "2025-12-17T18:00:00"
       final logoutTime = currentDateTime.replaceAll('T', ' '); // Format: "2025-12-17 18:00:00"
 
       print('🔴 [DashboardController] Updating work hours entry');
@@ -896,10 +896,10 @@ class DashboardController extends GetxController {
           leaveThisWeek.value = (leaveApplicationThisWeekValue ?? 0).toString();
 
           print('✅ [DashboardController] Dashboard summary updated (READ-ONLY):');
-          print('   hours_today: ${hoursTodayValue} → Hours Today: ${hoursToday.value}');
-          print('   hours_this_week: ${hoursThisWeekValue} → Hours This Week: ${hoursThisWeek.value}');
-          print('   event_this_week: ${eventThisWeekValue} → Events This Week: ${eventsThisWeek.value}');
-          print('   leave_application_this_week: ${leaveApplicationThisWeekValue} → Leave This Week: ${leaveThisWeek.value}');
+          print('   hours_today: $hoursTodayValue → Hours Today: ${hoursToday.value}');
+          print('   hours_this_week: $hoursThisWeekValue → Hours This Week: ${hoursThisWeek.value}');
+          print('   event_this_week: $eventThisWeekValue → Events This Week: ${eventsThisWeek.value}');
+          print('   leave_application_this_week: $leaveApplicationThisWeekValue → Leave This Week: ${leaveThisWeek.value}');
           print('   ⚠️ NOTE: Dashboard totals may differ from Hours screen - this is expected');
           print('   ⚠️ Dashboard = summary (backend-calculated), Hours = detailed (per-entry)');
         } else {

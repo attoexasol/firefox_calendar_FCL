@@ -22,6 +22,7 @@ class CellCardsModal extends StatelessWidget {
     required this.userEmail,
     required this.hour,
     required this.isDark,
+     //required this.isLight,
   });
 
   @override
@@ -102,7 +103,7 @@ class CellCardsModal extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${_formatHour(hour)} - ${dateStr}',
+                          '${_formatHour(hour)} - $dateStr',
                           style: AppTextStyles.bodySmall.copyWith(
                             color: isDark
                                 ? AppColors.mutedForegroundDark
