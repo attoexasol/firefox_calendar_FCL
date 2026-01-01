@@ -138,6 +138,7 @@ class CalendarWeekView extends GetView<CalendarController> {
   }
 
   /// Build week time grid content (time slots without header)
+  /// Structure: Fixed Time column + Paginated user columns (NO horizontal scroll)
   Widget _buildWeekTimeGridContent(
     BuildContext context,
     Map<String, List<String>> usersByDate,
@@ -147,25 +148,16 @@ class CalendarWeekView extends GetView<CalendarController> {
     bool isDark,
   ) {
     final numSlots = timeRange.endHour - timeRange.startHour + 1;
-    final totalWidth = 80.0 + weekDates.fold<double>(
-      0.0,
-      (sum, date) {
-        final dateStr = CalendarUtils.formatDateToIso(date);
-        final dayUsers = usersByDate[dateStr] ?? [];
-        return sum + (dayUsers.length * 150.0);
-      },
-    );
 
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      controller: controller.horizontalScrollController, // Shared scroll controller
-      child: SingleChildScrollView(
+    return Obx(() {
+      // Get paginated users by date
+      final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+
+      return SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: SizedBox(
-          width: totalWidth,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: List.generate(numSlots, (index) {
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: List.generate(numSlots, (index) {
             final hour = timeRange.startHour + index;
             final timeLabel = CalendarUtils.formatHour(hour);
 
@@ -187,7 +179,7 @@ class CalendarWeekView extends GetView<CalendarController> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Time Label
+                  // Fixed Time Label
                   Container(
                     width: 80,
                     constraints: const BoxConstraints(minHeight: 80),
@@ -207,125 +199,183 @@ class CalendarWeekView extends GetView<CalendarController> {
                       ),
                     ),
                   ),
-                  // User Columns for each day
-                  ...weekDates.expand((date) {
-                    final dateStr = CalendarUtils.formatDateToIso(date);
-                    // Get all meetings for this date (includes work hours)
-                    final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
-                    final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
-                    final dayUsers = usersByDate[dateStr] ?? [];
-                    
-                    if (dayUsers.isEmpty) {
-                      return <Widget>[];
-                    }
-                    
-                    return dayUsers.map((user) {
-                      // Find meetings for this user on this date that overlap with this hour slot
-                      final userMeetings = filteredDayMeetings.where((meeting) {
-                        if (controller.scopeType.value == 'myself') {
-                          if (controller.userId.value > 0 && meeting.userId != null) {
-                            if (meeting.userId != controller.userId.value) {
-                              return false;
-                            }
-                          } else {
-                            final isUserMeeting = meeting.creator == user ||
-                                meeting.attendees.contains(user);
-                            if (!isUserMeeting) return false;
-                          }
-                        } else {
-                          final isUserMeeting = meeting.creator == user ||
-                              meeting.attendees.contains(user);
-                          if (!isUserMeeting) return false;
-                        }
-
-                        final startParts = meeting.startTime.split(':');
-                        final endParts = meeting.endTime.split(':');
-                        final startHour = int.parse(startParts[0]);
-                        final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
-                        final endHour = int.parse(endParts[0]);
-                        final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
-                        
-                        final startMinutes = startHour * 60 + startMin;
-                        final endMinutes = endHour * 60 + endMin;
-                        final hourStartMinutes = hour * 60;
-                        final hourEndMinutes = (hour + 1) * 60;
-                        
-                        return startMinutes < hourEndMinutes && endMinutes > hourStartMinutes;
-                      }).toList();
-                      
-                      // Get work hours for this user and date
-                      final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
-                      
-                      final hourWorkHours = userWorkHours.where((workHour) {
-                        final loginParts = workHour.loginTime.split(':');
-                        final loginHour = int.parse(loginParts[0]);
-                        return loginHour == hour;
-                      }).toList();
-                      
-                      bool hasWorkHourInThisSlot = false;
-                      for (var workHour in userWorkHours) {
-                        final loginParts = workHour.loginTime.split(':');
-                        final logoutParts = workHour.logoutTime.split(':');
-                        final loginHour = int.parse(loginParts[0]);
-                        final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
-                        final logoutHour = int.parse(logoutParts[0]);
-                        final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
-                        
-                        final loginMinutes = loginHour * 60 + loginMin;
-                        final logoutMinutes = logoutHour * 60 + logoutMin;
-                        final hourStartMinutes = hour * 60;
-                        final hourEndMinutes = (hour + 1) * 60;
-                        
-                        if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
-                          hasWorkHourInThisSlot = true;
-                          break;
-                        }
-                      }
-                      
-                      final hourEvents = userMeetings.where((meeting) {
-                        final startParts = meeting.startTime.split(':');
-                        final startHour = int.parse(startParts[0]);
-                        return startHour == hour;
-                      }).toList();
-
-                      return Container(
-                        width: 150,
-                        constraints: const BoxConstraints(minHeight: 80),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? AppColors.backgroundDark
-                              : AppColors.backgroundLight,
-                          border: Border(
-                            right: BorderSide(
-                              color: isDark
-                                  ? AppColors.borderDark
-                                  : AppColors.borderLight,
-                              width: 1,
+                  // Paginated User Columns (NO horizontal scroll, fixed width)
+                  // Structure: Fixed Prev button space + User columns + Fixed Next button space
+                  Expanded(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Prev Button Space - ALWAYS RESERVED (50px) to match header
+                        Container(
+                          width: 50,
+                          constraints: const BoxConstraints(minHeight: 80),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? AppColors.backgroundDark
+                                : AppColors.backgroundLight,
+                            border: Border(
+                              right: BorderSide(
+                                color: isDark
+                                    ? AppColors.borderDark
+                                    : AppColors.borderLight,
+                                width: 1,
+                              ),
                             ),
                           ),
                         ),
-                        padding: const EdgeInsets.all(4),
-                        child: CalendarCellContent(
-                          meetings: hourEvents,
-                          workHours: hourWorkHours,
-                          dateStr: dateStr,
-                          userEmail: user,
-                          hour: hour,
-                          isDark: isDark,
-                          hasWorkHourBackground: hasWorkHourInThisSlot,
-                          controller: controller,
+                        // User Columns - Flexible width
+                        Expanded(
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // User Columns for each day (paginated)
+                              ...weekDates.expand((date) {
+                          final dateStr = CalendarUtils.formatDateToIso(date);
+                          // Get all meetings for this date (includes work hours)
+                          final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
+                          final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
+                          final dayUsers = paginatedUsersByDate[dateStr] ?? [];
+                          
+                          if (dayUsers.isEmpty) {
+                            return <Widget>[];
+                          }
+                          
+                          return dayUsers.map((user) {
+                              // Find meetings for this user on this date that overlap with this hour slot
+                              return Flexible(
+                                child: Builder(
+                                  builder: (context) {
+                                    final userMeetings = filteredDayMeetings.where((meeting) {
+                                if (controller.scopeType.value == 'myself') {
+                                  if (controller.userId.value > 0 && meeting.userId != null) {
+                                    if (meeting.userId != controller.userId.value) {
+                                      return false;
+                                    }
+                                  } else {
+                                    final isUserMeeting = meeting.creator == user ||
+                                        meeting.attendees.contains(user);
+                                    if (!isUserMeeting) return false;
+                                  }
+                                } else {
+                                  final isUserMeeting = meeting.creator == user ||
+                                      meeting.attendees.contains(user);
+                                  if (!isUserMeeting) return false;
+                                }
+
+                                final startParts = meeting.startTime.split(':');
+                                final endParts = meeting.endTime.split(':');
+                                final startHour = int.parse(startParts[0]);
+                                final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
+                                final endHour = int.parse(endParts[0]);
+                                final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
+                                
+                                final startMinutes = startHour * 60 + startMin;
+                                final endMinutes = endHour * 60 + endMin;
+                                final hourStartMinutes = hour * 60;
+                                final hourEndMinutes = (hour + 1) * 60;
+                                
+                                return startMinutes < hourEndMinutes && endMinutes > hourStartMinutes;
+                              }).toList();
+                              
+                              // Get work hours for this user and date
+                              final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                              
+                              final hourWorkHours = userWorkHours.where((workHour) {
+                                final loginParts = workHour.loginTime.split(':');
+                                final loginHour = int.parse(loginParts[0]);
+                                return loginHour == hour;
+                              }).toList();
+                              
+                              bool hasWorkHourInThisSlot = false;
+                              for (var workHour in userWorkHours) {
+                                final loginParts = workHour.loginTime.split(':');
+                                final logoutParts = workHour.logoutTime.split(':');
+                                final loginHour = int.parse(loginParts[0]);
+                                final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+                                final logoutHour = int.parse(logoutParts[0]);
+                                final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+                                
+                                final loginMinutes = loginHour * 60 + loginMin;
+                                final logoutMinutes = logoutHour * 60 + logoutMin;
+                                final hourStartMinutes = hour * 60;
+                                final hourEndMinutes = (hour + 1) * 60;
+                                
+                                if (loginMinutes < hourEndMinutes && logoutMinutes > hourStartMinutes) {
+                                  hasWorkHourInThisSlot = true;
+                                  break;
+                                }
+                              }
+                              
+                              final hourEvents = userMeetings.where((meeting) {
+                                final startParts = meeting.startTime.split(':');
+                                final startHour = int.parse(startParts[0]);
+                                return startHour == hour;
+                              }).toList();
+
+                                    return Container(
+                                      width: 150,
+                                      constraints: const BoxConstraints(minHeight: 80, minWidth: 120, maxWidth: 150),
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? AppColors.backgroundDark
+                                            : AppColors.backgroundLight,
+                                        border: Border(
+                                          right: BorderSide(
+                                            color: isDark
+                                                ? AppColors.borderDark
+                                                : AppColors.borderLight,
+                                            width: 1,
+                                          ),
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.all(4),
+                                      child: CalendarCellContent(
+                                        meetings: hourEvents,
+                                        workHours: hourWorkHours,
+                                        dateStr: dateStr,
+                                        userEmail: user,
+                                        hour: hour,
+                                        isDark: isDark,
+                                        hasWorkHourBackground: hasWorkHourInThisSlot,
+                                        controller: controller,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            });
+                          }),
+                            ],
+                          ),
                         ),
-                      );
-                    });
-                  }),
+                        // Next Button Space - ALWAYS RESERVED (50px) to match header
+                        Container(
+                          width: 50,
+                          constraints: const BoxConstraints(minHeight: 80),
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? AppColors.backgroundDark
+                                : AppColors.backgroundLight,
+                            border: Border(
+                              left: BorderSide(
+                                color: isDark
+                                    ? AppColors.borderDark
+                                    : AppColors.borderLight,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             );
           }),
-          ),
         ),
-      ),
-    );
+      );
+    });
   }
 }
 
@@ -339,27 +389,16 @@ class WeekGridHeaderSliver extends GetView<CalendarController> {
     return Obx(() {
       final weekDates = controller.getCurrentWeekDates();
       final usersByDate = CalendarHelpers.getUsersByDateForWeek(weekDates, controller);
-      
-      // Calculate total width
-      final totalWidth = 80.0 + weekDates.fold<double>(
-        0.0,
-        (sum, date) {
-          final dateStr = CalendarUtils.formatDateToIso(date);
-          final dayUsers = usersByDate[dateStr] ?? [];
-          return sum + (dayUsers.length * 150.0);
-        },
-      );
 
       return SliverPersistentHeader(
         pinned: true,
         delegate: WeekGridHeaderDelegate(
           weekDates: weekDates,
           usersByDate: usersByDate,
-          totalWidth: totalWidth,
           isDark: isDark,
           onDateClick: (date) => controller.handleWeekDateClick(date),
           selectedWeekDate: controller.selectedWeekDate.value,
-          horizontalScrollController: controller.horizontalScrollController,
+          controller: controller,
         ),
       );
     });

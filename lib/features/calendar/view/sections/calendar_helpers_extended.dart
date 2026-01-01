@@ -89,23 +89,21 @@ extension DateFormatExtension on CalendarUtils {
 }
 
 /// SliverPersistentHeaderDelegate for Week Grid Header
-/// Sticky header with days/dates row + time column + user avatars
+/// Sticky header with days/dates row + time column + user avatars with pagination
 class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
   final List<DateTime> weekDates;
   final Map<String, List<String>> usersByDate;
-  final double totalWidth;
   final bool isDark;
   final Function(DateTime) onDateClick;
   final DateTime? selectedWeekDate;
-  final ScrollController horizontalScrollController;
+  final CalendarController controller;
 
   WeekGridHeaderDelegate({
     required this.weekDates,
     required this.usersByDate,
-    required this.totalWidth,
     required this.isDark,
     required this.onDateClick,
-    required this.horizontalScrollController,
+    required this.controller,
     this.selectedWeekDate,
   });
 
@@ -150,59 +148,68 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
               },
             ),
           ),
-          // User Header Row (Time + User Avatars)
-          // This row scrolls horizontally with the time columns below
-          Container(
-            height: 80,
-            decoration: BoxDecoration(
-              color: isDark
-                  ? AppColors.backgroundDark
-                  : AppColors.backgroundLight,
-              border: Border(
-                bottom: BorderSide(
-                  color: isDark
-                      ? AppColors.borderDark
-                      : AppColors.borderLight,
-                  width: 1,
+          // User Header Row (Time + User Avatars with Pagination)
+          // Structure: Fixed Time cell + Paginated user columns + Prev/Next buttons
+          Builder(
+            builder: (context) {
+              // Get all unique users across all dates for pagination
+              final allUniqueUsers = <String>{};
+              for (var users in usersByDate.values) {
+                allUniqueUsers.addAll(users);
+              }
+              final sortedUsers = allUniqueUsers.toList()..sort();
+              
+              // Get paginated users by date
+              final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+              
+              return Container(
+              height: 80,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.backgroundDark
+                    : AppColors.backgroundLight,
+                border: Border(
+                  bottom: BorderSide(
+                    color: isDark
+                        ? AppColors.borderDark
+                        : AppColors.borderLight,
+                    width: 1,
+                  ),
                 ),
               ),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              controller: horizontalScrollController, // Shared scroll controller
-              child: SizedBox(
-                width: totalWidth,
-                child: Row(
-                  children: [
-                    // Time Label Header
-                    Container(
-                      width: 80,
-                      height: 80,
-                      padding: const EdgeInsets.all(8),
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Fixed Time Label Header
+                  Container(
+                    width: 80,
+                    height: 80,
+                    padding: const EdgeInsets.all(8),
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? AppColors.backgroundDark
+                          : AppColors.backgroundLight,
+                    ),
+                    child: Text(
+                      'Time',
+                      style: AppTextStyles.labelSmall.copyWith(
                         color: isDark
-                            ? AppColors.backgroundDark
-                            : AppColors.backgroundLight,
-                      ),
-                      child: Text(
-                        'Time',
-                        style: AppTextStyles.labelSmall.copyWith(
-                          color: isDark
-                              ? AppColors.foregroundDark
-                              : AppColors.foregroundLight,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
+                            ? AppColors.foregroundDark
+                            : AppColors.foregroundLight,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
                       ),
                     ),
-                    // User Columns for each day
-                    ...weekDates.expand((date) {
-                      final dateStr = CalendarUtils.formatDateToIso(date);
-                      final dayUsers = usersByDate[dateStr] ?? [];
-                      return dayUsers.map((user) {
-                        return Container(
-                          width: 150,
+                  ),
+                  // Paginated User Columns (NO horizontal scroll)
+                  // Structure: Fixed Prev button space + User columns + Fixed Next button space
+                  Expanded(
+                    child: Row(
+                      children: [
+                        // Prev Button - ALWAYS RESERVED SPACE (50px)
+                        Container(
+                          width: 50,
                           height: 80,
                           decoration: BoxDecoration(
                             color: isDark
@@ -217,56 +224,127 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                               ),
                             ),
                           ),
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            crossAxisAlignment: CrossAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
+                          child: controller.canGoToPreviousPage()
+                              ? IconButton(
+                                  icon: const Icon(Icons.chevron_left),
+                                  onPressed: () => controller.previousUserPage(),
+                                  color: isDark
+                                      ? AppColors.foregroundDark
+                                      : AppColors.foregroundLight,
+                                )
+                              : const SizedBox.shrink(), // Invisible but space reserved
+                        ),
+                        // User Columns for each day (paginated) - Flexible width
+                        Expanded(
+                          child: Row(
                             children: [
-                              // User Avatar
-                              Container(
-                                width: 40,
-                                height: 40,
-                                decoration: BoxDecoration(
-                                  color: CalendarHelpers.getUserColor(user),
-                                  shape: BoxShape.circle,
-                                ),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  CalendarUtils.getUserInitials(user),
-                                  style: AppTextStyles.labelSmall.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w600,
-                                    fontSize: 14,
+                              // User Columns for each day (paginated)
+                              ...weekDates.expand((date) {
+                                final dateStr = CalendarUtils.formatDateToIso(date);
+                                final dayUsers = paginatedUsersByDate[dateStr] ?? [];
+                                return dayUsers.map((user) {
+                                  return Flexible(
+                                    child: Container(
+                                      width: 150,
+                                      constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+                                    height: 80,
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? AppColors.backgroundDark
+                                          : AppColors.backgroundLight,
+                                      border: Border(
+                                        right: BorderSide(
+                                          color: isDark
+                                              ? AppColors.borderDark
+                                              : AppColors.borderLight,
+                                          width: 1,
+                                        ),
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      crossAxisAlignment: CrossAxisAlignment.center,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // User Avatar
+                                        Container(
+                                          width: 40,
+                                          height: 40,
+                                          decoration: BoxDecoration(
+                                            color: CalendarHelpers.getUserColor(user),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: Text(
+                                            CalendarUtils.getUserInitials(user),
+                                            style: AppTextStyles.labelSmall.copyWith(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.w600,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        // User Name
+                                        Flexible(
+                                          child: Text(
+                                            CalendarUtils.getDisplayName(user),
+                                            style: AppTextStyles.labelSmall.copyWith(
+                                              color: isDark
+                                                  ? AppColors.foregroundDark
+                                                  : AppColors.foregroundLight,
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 10,
+                                            ),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              // User Name
-                              Flexible(
-                                child: Text(
-                                  CalendarUtils.getDisplayName(user),
-                                  style: AppTextStyles.labelSmall.copyWith(
-                                    color: isDark
-                                        ? AppColors.foregroundDark
-                                        : AppColors.foregroundLight,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 10,
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
+                                  );
+                                });
+                              }),
                             ],
                           ),
-                        );
-                      });
-                    }),
-                  ],
-                ),
+                        ),
+                        // Next Button - ALWAYS RESERVED SPACE (50px)
+                        Container(
+                          width: 50,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: isDark
+                                ? AppColors.backgroundDark
+                                : AppColors.backgroundLight,
+                            border: Border(
+                              left: BorderSide(
+                                color: isDark
+                                    ? AppColors.borderDark
+                                    : AppColors.borderLight,
+                                width: 1,
+                              ),
+                            ),
+                          ),
+                          child: controller.canGoToNextPage(sortedUsers)
+                              ? IconButton(
+                                  icon: const Icon(Icons.chevron_right),
+                                  onPressed: () => controller.nextUserPage(sortedUsers),
+                                  color: isDark
+                                      ? AppColors.foregroundDark
+                                      : AppColors.foregroundLight,
+                                )
+                              : const SizedBox.shrink(), // Invisible but space reserved
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
+            );
+            },
           ),
         ],
       ),
@@ -279,7 +357,8 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
         usersByDate != oldDelegate.usersByDate ||
         isDark != oldDelegate.isDark ||
         selectedWeekDate != oldDelegate.selectedWeekDate ||
-        horizontalScrollController != oldDelegate.horizontalScrollController;
+        controller != oldDelegate.controller ||
+        controller.currentUserPage.value != oldDelegate.controller.currentUserPage.value;
   }
 
   Widget _buildDayDateItem(DateTime date, bool isDark) {
@@ -356,18 +435,16 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
 }
 
 /// SliverPersistentHeaderDelegate for Day Grid Header
-/// Sticky header with time column + user avatars
+/// Sticky header with time column + user avatars with pagination
 class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
   final List<String> users;
-  final double totalWidth;
   final bool isDark;
-  final ScrollController horizontalScrollController;
+  final CalendarController controller;
 
   DayGridHeaderDelegate({
     required this.users,
-    required this.totalWidth,
     required this.isDark,
-    required this.horizontalScrollController,
+    required this.controller,
   });
 
   @override
@@ -378,126 +455,195 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    // Get paginated users (reactive via Obx in parent)
+    final paginatedUsers = controller.getPaginatedUsers(users);
+    
     return Container(
-      height: 80,
-      decoration: BoxDecoration(
-        color: isDark
-            ? AppColors.backgroundDark
-            : AppColors.backgroundLight,
-        border: Border(
-          bottom: BorderSide(
-            color: isDark
-                ? AppColors.borderDark
-                : AppColors.borderLight,
-            width: 1,
+        height: 80,
+        decoration: BoxDecoration(
+          color: isDark
+              ? AppColors.backgroundDark
+              : AppColors.backgroundLight,
+          border: Border(
+            bottom: BorderSide(
+              color: isDark
+                  ? AppColors.borderDark
+                  : AppColors.borderLight,
+              width: 1,
+            ),
           ),
         ),
-      ),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        controller: horizontalScrollController, // Shared scroll controller
-        child: SizedBox(
-          width: totalWidth,
-          child: Row(
-            children: [
-              // Time Label Header
-              Container(
-                width: 80,
-                height: 80,
-                padding: const EdgeInsets.all(8),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Fixed Time Label Header
+            Container(
+              width: 80,
+              height: 80,
+              padding: const EdgeInsets.all(8),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppColors.backgroundDark
+                    : AppColors.backgroundLight,
+              ),
+              child: Text(
+                'Time',
+                style: AppTextStyles.labelSmall.copyWith(
                   color: isDark
-                      ? AppColors.backgroundDark
-                      : AppColors.backgroundLight,
-                ),
-                child: Text(
-                  'Time',
-                  style: AppTextStyles.labelSmall.copyWith(
-                    color: isDark
-                        ? AppColors.foregroundDark
-                        : AppColors.foregroundLight,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12,
-                  ),
+                      ? AppColors.foregroundDark
+                      : AppColors.foregroundLight,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 12,
                 ),
               ),
-              // User Columns
-              ...users.map((user) {
-                return Container(
-                  width: 150,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? AppColors.backgroundDark
-                        : AppColors.backgroundLight,
-                    border: Border(
-                      right: BorderSide(
-                        color: isDark
-                            ? AppColors.borderDark
-                            : AppColors.borderLight,
-                        width: 1,
-                      ),
-                    ),
-                  ),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // User Avatar
-                      Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: CalendarHelpers.getUserColor(user),
-                          shape: BoxShape.circle,
-                        ),
-                        alignment: Alignment.center,
-                        child: Text(
-                          CalendarUtils.getUserInitials(user),
-                          style: AppTextStyles.labelSmall.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w600,
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      // User Name
-                      Flexible(
-                        child: Text(
-                          CalendarUtils.getDisplayName(user),
-                          style: AppTextStyles.labelSmall.copyWith(
-                            color: isDark
-                                ? AppColors.foregroundDark
-                                : AppColors.foregroundLight,
-                            fontWeight: FontWeight.w500,
-                            fontSize: 10,
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          ),
+            ),
+             // Paginated User Columns (NO horizontal scroll)
+             // Structure: Fixed Prev button space + User columns + Fixed Next button space
+             Expanded(
+               child: Row(
+                 children: [
+                   // Prev Button - ALWAYS RESERVED SPACE (50px)
+                   Container(
+                     width: 50,
+                     height: 80,
+                     decoration: BoxDecoration(
+                       color: isDark
+                           ? AppColors.backgroundDark
+                           : AppColors.backgroundLight,
+                       border: Border(
+                         right: BorderSide(
+                           color: isDark
+                               ? AppColors.borderDark
+                               : AppColors.borderLight,
+                           width: 1,
+                         ),
+                       ),
+                     ),
+                     child: controller.canGoToPreviousPage()
+                         ? IconButton(
+                             icon: const Icon(Icons.chevron_left),
+                             onPressed: () => controller.previousUserPage(),
+                             color: isDark
+                                 ? AppColors.foregroundDark
+                                 : AppColors.foregroundLight,
+                           )
+                         : const SizedBox.shrink(), // Invisible but space reserved
+                   ),
+                   // Paginated User Columns - Flexible width
+                   Expanded(
+                     child: Row(
+                       children: [
+                         // Paginated User Columns
+                         ...paginatedUsers.map((user) {
+                           return Flexible(
+                             child: Container(
+                               width: 150,
+                               constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+                               height: 80,
+                               decoration: BoxDecoration(
+                                 color: isDark
+                                     ? AppColors.backgroundDark
+                                     : AppColors.backgroundLight,
+                                 border: Border(
+                                   right: BorderSide(
+                                     color: isDark
+                                         ? AppColors.borderDark
+                                         : AppColors.borderLight,
+                                     width: 1,
+                                   ),
+                                 ),
+                               ),
+                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                               child: Column(
+                                 mainAxisAlignment: MainAxisAlignment.center,
+                                 crossAxisAlignment: CrossAxisAlignment.center,
+                                 mainAxisSize: MainAxisSize.min,
+                                 children: [
+                                   // User Avatar
+                                   Container(
+                                     width: 40,
+                                     height: 40,
+                                     decoration: BoxDecoration(
+                                       color: CalendarHelpers.getUserColor(user),
+                                       shape: BoxShape.circle,
+                                     ),
+                                     alignment: Alignment.center,
+                                     child: Text(
+                                       CalendarUtils.getUserInitials(user),
+                                       style: AppTextStyles.labelSmall.copyWith(
+                                         color: Colors.white,
+                                         fontWeight: FontWeight.w600,
+                                         fontSize: 14,
+                                       ),
+                                     ),
+                                   ),
+                                   const SizedBox(height: 4),
+                                   // User Name
+                                   Flexible(
+                                     child: Text(
+                                       CalendarUtils.getDisplayName(user),
+                                       style: AppTextStyles.labelSmall.copyWith(
+                                         color: isDark
+                                             ? AppColors.foregroundDark
+                                             : AppColors.foregroundLight,
+                                         fontWeight: FontWeight.w500,
+                                         fontSize: 10,
+                                       ),
+                                       maxLines: 1,
+                                       overflow: TextOverflow.ellipsis,
+                                       textAlign: TextAlign.center,
+                                     ),
+                                   ),
+                                 ],
+                               ),
+                             ),
+                           );
+                         }),
+                       ],
+                     ),
+                   ),
+                   // Next Button - ALWAYS RESERVED SPACE (50px)
+                   Container(
+                     width: 50,
+                     height: 80,
+                     decoration: BoxDecoration(
+                       color: isDark
+                           ? AppColors.backgroundDark
+                           : AppColors.backgroundLight,
+                       border: Border(
+                         left: BorderSide(
+                           color: isDark
+                               ? AppColors.borderDark
+                               : AppColors.borderLight,
+                           width: 1,
+                         ),
+                       ),
+                     ),
+                     child: controller.canGoToNextPage(users)
+                         ? IconButton(
+                             icon: const Icon(Icons.chevron_right),
+                             onPressed: () => controller.nextUserPage(users),
+                             color: isDark
+                                 ? AppColors.foregroundDark
+                                 : AppColors.foregroundLight,
+                           )
+                         : const SizedBox.shrink(), // Invisible but space reserved
+                   ),
+                 ],
+               ),
+             ),
+          ],
         ),
-      ),
-    );
+      );
   }
 
   @override
   bool shouldRebuild(DayGridHeaderDelegate oldDelegate) {
     return users != oldDelegate.users ||
-        totalWidth != oldDelegate.totalWidth ||
         isDark != oldDelegate.isDark ||
-        horizontalScrollController != oldDelegate.horizontalScrollController;
+        controller != oldDelegate.controller ||
+        controller.currentUserPage.value != oldDelegate.controller.currentUserPage.value;
   }
 }
 

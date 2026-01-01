@@ -65,7 +65,12 @@ class CalendarController extends GetxController {
   static const double stickyHeaderThreshold = 100.0;
   
   // Shared horizontal scroll controller for synchronizing header and content
+  // NOTE: Kept for backward compatibility but not used with pagination
   final ScrollController horizontalScrollController = ScrollController();
+
+  // User pagination state
+  static const int usersPerPage = 2; // Number of users to show per page
+  final RxInt currentUserPage = 0.obs; // Current page index (0-based)
 
   @override
   void onInit() {
@@ -891,6 +896,7 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] View type changed: ${viewType.value} → $type');
     viewType.value = type;
     selectedWeekDate.value = null; // Reset date filter when changing views
+    resetUserPage(); // Reset pagination when changing views
     // Refresh events with new view type
     fetchAllEvents();
     // Also refresh work hours
@@ -901,6 +907,7 @@ class CalendarController extends GetxController {
   void setScopeType(String type) {
     print('🔄 [CalendarController] Scope changed: ${scopeType.value} → $type');
     scopeType.value = type;
+    resetUserPage(); // Reset pagination when changing scope
     // Fetch events based on scope (different API endpoints)
     fetchAllEvents(); // This will use the correct endpoint based on scope
     // Also refresh work hours
@@ -960,6 +967,7 @@ class CalendarController extends GetxController {
     
     final newDateStr = _formatDateString(currentDate.value);
     print('🔄 [CalendarController] Navigated PREVIOUS: $oldDate → $newDateStr');
+    resetUserPage(); // Reset pagination when date changes
     // Refresh events when date changes
     fetchAllEvents();
     // Also refresh work hours
@@ -990,6 +998,7 @@ class CalendarController extends GetxController {
     
     final newDateStr = _formatDateString(currentDate.value);
     print('🔄 [CalendarController] Navigated NEXT: $oldDate → $newDateStr');
+    resetUserPage(); // Reset pagination when date changes
     // Refresh events when date changes
     fetchAllEvents();
     // Also refresh work hours
@@ -1003,6 +1012,7 @@ class CalendarController extends GetxController {
     // Always set to today's date, resetting time to start of day
     currentDate.value = DateTime(now.year, now.month, now.day);
     selectedWeekDate.value = null;
+    resetUserPage(); // Reset pagination when navigating to today
     final newDateStr = _formatDateString(currentDate.value);
     print('🔄 [CalendarController] Navigated to TODAY: $oldDate → $newDateStr');
     // Refresh events when date changes
@@ -1016,6 +1026,7 @@ class CalendarController extends GetxController {
     final oldDate = _formatDateString(currentDate.value);
     currentDate.value = date;
     isCalendarOpen.value = false;
+    resetUserPage(); // Reset pagination when date changes
     final newDateStr = _formatDateString(currentDate.value);
     print('🔄 [CalendarController] Date changed via picker: $oldDate → $newDateStr');
     // Refresh events when date changes
@@ -1378,6 +1389,93 @@ class CalendarController extends GetxController {
   void handleDayClick(DateTime date) {
     currentDate.value = date;
     viewType.value = 'day';
+  }
+
+  // ============================================================================
+  // USER PAGINATION METHODS
+  // ============================================================================
+
+  /// Get paginated users from a list
+  /// Returns a subset of users for the current page
+  List<String> getPaginatedUsers(List<String> allUsers) {
+    if (allUsers.isEmpty) return [];
+    
+    final startIndex = currentUserPage.value * usersPerPage;
+    final endIndex = (startIndex + usersPerPage).clamp(0, allUsers.length);
+    
+    if (startIndex >= allUsers.length) {
+      // If current page is beyond available users, reset to last valid page
+      final lastPage = ((allUsers.length - 1) / usersPerPage).floor();
+      currentUserPage.value = lastPage;
+      final newStartIndex = currentUserPage.value * usersPerPage;
+      final newEndIndex = (newStartIndex + usersPerPage).clamp(0, allUsers.length);
+      return allUsers.sublist(newStartIndex, newEndIndex);
+    }
+    
+    return allUsers.sublist(startIndex, endIndex);
+  }
+
+  /// Get paginated users by date for week view
+  /// Returns a map of date -> paginated users for that date
+  Map<String, List<String>> getPaginatedUsersByDate(Map<String, List<String>> usersByDate) {
+    final paginatedMap = <String, List<String>>{};
+    
+    // Collect all unique users across all dates
+    final allUniqueUsers = <String>{};
+    for (var users in usersByDate.values) {
+      allUniqueUsers.addAll(users);
+    }
+    final sortedUsers = allUniqueUsers.toList()..sort();
+    
+    // Get paginated users
+    final paginatedUsers = getPaginatedUsers(sortedUsers);
+    
+    // Filter usersByDate to only include paginated users
+    for (var entry in usersByDate.entries) {
+      final dateStr = entry.key;
+      final dayUsers = entry.value;
+      final filteredUsers = dayUsers.where((user) => paginatedUsers.contains(user)).toList();
+      if (filteredUsers.isNotEmpty) {
+        paginatedMap[dateStr] = filteredUsers;
+      }
+    }
+    
+    return paginatedMap;
+  }
+
+  /// Navigate to next page of users
+  void nextUserPage(List<String> allUsers) {
+    final totalPages = ((allUsers.length - 1) / usersPerPage).floor() + 1;
+    if (currentUserPage.value < totalPages - 1) {
+      currentUserPage.value++;
+      print('📄 [CalendarController] Next page: ${currentUserPage.value + 1}/$totalPages');
+    }
+  }
+
+  /// Navigate to previous page of users
+  void previousUserPage() {
+    if (currentUserPage.value > 0) {
+      currentUserPage.value--;
+      print('📄 [CalendarController] Previous page: ${currentUserPage.value + 1}');
+    }
+  }
+
+  /// Check if can navigate to next page
+  bool canGoToNextPage(List<String> allUsers) {
+    if (allUsers.isEmpty) return false;
+    final totalPages = ((allUsers.length - 1) / usersPerPage).floor() + 1;
+    return currentUserPage.value < totalPages - 1;
+  }
+
+  /// Check if can navigate to previous page
+  bool canGoToPreviousPage() {
+    return currentUserPage.value > 0;
+  }
+
+  /// Reset pagination to first page
+  /// Called when view type, scope, or date changes
+  void resetUserPage() {
+    currentUserPage.value = 0;
   }
 }
 
