@@ -29,6 +29,7 @@ class CalendarHelpers {
 
   /// Get users by date for week view
   /// Includes users from both meetings and work hours
+  /// If selectedWeekDate is set, only returns users for that selected date
   /// This MUST match the calculation in CalendarWeekView.build() exactly
   static Map<String, List<String>> getUsersByDateForWeek(
     List<DateTime> weekDates,
@@ -36,7 +37,12 @@ class CalendarHelpers {
   ) {
     final usersByDate = <String, List<String>>{};
     
-    for (var date in weekDates) {
+    // If a week date is selected, only process that date
+    final datesToProcess = controller.selectedWeekDate.value != null
+        ? [controller.selectedWeekDate.value!]
+        : weekDates;
+    
+    for (var date in datesToProcess) {
       final dateStr = CalendarUtils.formatDateToIso(date);
       // Get all meetings for this date from controller (includes work hours)
       // This MUST match CalendarWeekView.build() exactly
@@ -74,6 +80,18 @@ class CalendarHelpers {
           }
         }
         usersByDate[dateStr] = allUsers.toList()..sort();
+      }
+    }
+    
+    // If selectedWeekDate is set, only show users for that date (not all week dates)
+    if (controller.selectedWeekDate.value != null) {
+      final selectedDateStr = CalendarUtils.formatDateToIso(controller.selectedWeekDate.value!);
+      // Keep only the selected date's users, set others to empty
+      for (var date in weekDates) {
+        final dateStr = CalendarUtils.formatDateToIso(date);
+        if (dateStr != selectedDateStr) {
+          usersByDate[dateStr] = [];
+        }
       }
     }
     
@@ -224,30 +242,37 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                               ),
                             ),
                           ),
-                          child: controller.canGoToPreviousPage()
-                              ? IconButton(
-                                  icon: const Icon(Icons.chevron_left),
-                                  onPressed: () => controller.previousUserPage(),
-                                  color: isDark
-                                      ? AppColors.foregroundDark
-                                      : AppColors.foregroundLight,
-                                )
-                              : const SizedBox.shrink(), // Invisible but space reserved
+                          child: IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: controller.canGoToPreviousPage()
+                                ? () => controller.previousUserPage()
+                                : null, // Disabled when can't go previous
+                            color: controller.canGoToPreviousPage()
+                                ? (isDark
+                                    ? AppColors.foregroundDark
+                                    : AppColors.foregroundLight)
+                                : (isDark
+                                    ? AppColors.mutedForegroundDark
+                                    : AppColors.mutedForegroundLight), // Grayed out when disabled
+                          ),
                         ),
-                        // User Columns for each day (paginated) - Flexible width
+                        // User Columns for each day (paginated) - Instant replacement, no animation
                         Expanded(
-                          child: Row(
-                            children: [
-                              // User Columns for each day (paginated)
-                              ...weekDates.expand((date) {
-                                final dateStr = CalendarUtils.formatDateToIso(date);
-                                final dayUsers = paginatedUsersByDate[dateStr] ?? [];
-                                return dayUsers.map((user) {
-                                  return Flexible(
-                                    child: Container(
-                                      width: 150,
-                                      constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
-                                    height: 80,
+                          child: Builder(
+                            builder: (context) {
+                              // Direct instant replacement - no animation
+                              return Row(
+                                children: [
+                                // User Columns for each day (paginated)
+                                ...weekDates.expand((date) {
+                                  final dateStr = CalendarUtils.formatDateToIso(date);
+                                  final dayUsers = paginatedUsersByDate[dateStr] ?? [];
+                                  return dayUsers.map((user) {
+                                    return Flexible(
+                                      child: Container(
+                                        width: 150,
+                                        constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+                                        height: 80,
                                     decoration: BoxDecoration(
                                       color: isDark
                                           ? AppColors.backgroundDark
@@ -308,7 +333,9 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                                   );
                                 });
                               }),
-                            ],
+                              ],
+                            );
+                            },
                           ),
                         ),
                         // Next Button - ALWAYS RESERVED SPACE (50px)
@@ -328,15 +355,19 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                               ),
                             ),
                           ),
-                          child: controller.canGoToNextPage(sortedUsers)
-                              ? IconButton(
-                                  icon: const Icon(Icons.chevron_right),
-                                  onPressed: () => controller.nextUserPage(sortedUsers),
-                                  color: isDark
-                                      ? AppColors.foregroundDark
-                                      : AppColors.foregroundLight,
-                                )
-                              : const SizedBox.shrink(), // Invisible but space reserved
+                          child: IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: controller.canGoToNextPage(sortedUsers)
+                                ? () => controller.nextUserPage(sortedUsers)
+                                : null, // Disabled when can't go next
+                            color: controller.canGoToNextPage(sortedUsers)
+                                ? (isDark
+                                    ? AppColors.foregroundDark
+                                    : AppColors.foregroundLight)
+                                : (isDark
+                                    ? AppColors.mutedForegroundDark
+                                    : AppColors.mutedForegroundLight), // Grayed out when disabled
+                          ),
                         ),
                       ],
                     ),
@@ -520,27 +551,34 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                          ),
                        ),
                      ),
-                     child: controller.canGoToPreviousPage()
-                         ? IconButton(
-                             icon: const Icon(Icons.chevron_left),
-                             onPressed: () => controller.previousUserPage(),
-                             color: isDark
-                                 ? AppColors.foregroundDark
-                                 : AppColors.foregroundLight,
-                           )
-                         : const SizedBox.shrink(), // Invisible but space reserved
+                     child: IconButton(
+                       icon: const Icon(Icons.chevron_left),
+                       onPressed: controller.canGoToPreviousPage()
+                           ? () => controller.previousUserPage()
+                           : null, // Disabled when can't go previous
+                       color: controller.canGoToPreviousPage()
+                           ? (isDark
+                               ? AppColors.foregroundDark
+                               : AppColors.foregroundLight)
+                           : (isDark
+                               ? AppColors.mutedForegroundDark
+                               : AppColors.mutedForegroundLight), // Grayed out when disabled
+                     ),
                    ),
-                   // Paginated User Columns - Flexible width
+                   // Paginated User Columns - Instant replacement, no animation
                    Expanded(
-                     child: Row(
-                       children: [
-                         // Paginated User Columns
-                         ...paginatedUsers.map((user) {
-                           return Flexible(
-                             child: Container(
-                               width: 150,
-                               constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
-                               height: 80,
+                     child: Builder(
+                       builder: (context) {
+                         // Direct instant replacement - no animation
+                         return Row(
+                           children: [
+                           // Paginated User Columns
+                           ...paginatedUsers.map((user) {
+                             return Flexible(
+                               child: Container(
+                                 width: 150,
+                                 constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+                                 height: 80,
                                decoration: BoxDecoration(
                                  color: isDark
                                      ? AppColors.backgroundDark
@@ -600,7 +638,9 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                              ),
                            );
                          }),
-                       ],
+                         ],
+                       );
+                       },
                      ),
                    ),
                    // Next Button - ALWAYS RESERVED SPACE (50px)
@@ -620,15 +660,19 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                          ),
                        ),
                      ),
-                     child: controller.canGoToNextPage(users)
-                         ? IconButton(
-                             icon: const Icon(Icons.chevron_right),
-                             onPressed: () => controller.nextUserPage(users),
-                             color: isDark
-                                 ? AppColors.foregroundDark
-                                 : AppColors.foregroundLight,
-                           )
-                         : const SizedBox.shrink(), // Invisible but space reserved
+                     child: IconButton(
+                       icon: const Icon(Icons.chevron_right),
+                       onPressed: controller.canGoToNextPage(users)
+                           ? () => controller.nextUserPage(users)
+                           : null, // Disabled when can't go next
+                       color: controller.canGoToNextPage(users)
+                           ? (isDark
+                               ? AppColors.foregroundDark
+                               : AppColors.foregroundLight)
+                           : (isDark
+                               ? AppColors.mutedForegroundDark
+                               : AppColors.mutedForegroundLight), // Grayed out when disabled
+                     ),
                    ),
                  ],
                ),

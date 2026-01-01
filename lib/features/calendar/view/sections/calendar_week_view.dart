@@ -82,10 +82,16 @@ class CalendarWeekView extends GetView<CalendarController> {
       final timeRange = controller.getTimeRange(filteredMeetings);
       
       // Get users per date (each day can have different users)
-      // This matches the image where each day shows only users with events on that day
+      // If selectedWeekDate is set, only show users for that selected date
       // Include users from both meetings AND work hours
       final Map<String, List<String>> usersByDate = {};
-      for (var date in weekDates) {
+      
+      // If a week date is selected, only process that date
+      final datesToProcess = controller.selectedWeekDate.value != null
+          ? [controller.selectedWeekDate.value!]
+          : weekDates;
+      
+      for (var date in datesToProcess) {
         final dateStr = CalendarUtils.formatDateToIso(date);
         // Get all meetings for this date from controller (includes work hours)
         final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
@@ -121,6 +127,17 @@ class CalendarWeekView extends GetView<CalendarController> {
             }
           }
           usersByDate[dateStr] = allUsers.toList()..sort();
+        }
+      }
+      
+      // If selectedWeekDate is set, only show users for that date (set others to empty)
+      if (controller.selectedWeekDate.value != null) {
+        final selectedDateStr = CalendarUtils.formatDateToIso(controller.selectedWeekDate.value!);
+        for (var date in weekDates) {
+          final dateStr = CalendarUtils.formatDateToIso(date);
+          if (dateStr != selectedDateStr) {
+            usersByDate[dateStr] = [];
+          }
         }
       }
       
@@ -223,13 +240,15 @@ class CalendarWeekView extends GetView<CalendarController> {
                             ),
                           ),
                         ),
-                        // User Columns - Flexible width
+                        // User Columns - Instant replacement, no animation
                         Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // User Columns for each day (paginated)
-                              ...weekDates.expand((date) {
+                          child: Obx(() {
+                            // Direct instant replacement - no animation
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // User Columns for each day (paginated)
+                                ...weekDates.expand((date) {
                           final dateStr = CalendarUtils.formatDateToIso(date);
                           // Get all meetings for this date (includes work hours)
                           final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
@@ -345,8 +364,9 @@ class CalendarWeekView extends GetView<CalendarController> {
                               );
                             });
                           }),
-                            ],
-                          ),
+                              ],
+                            );
+                          }),
                         ),
                         // Next Button Space - ALWAYS RESERVED (50px) to match header
                         Container(

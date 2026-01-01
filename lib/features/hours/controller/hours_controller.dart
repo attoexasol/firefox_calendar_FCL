@@ -232,50 +232,76 @@ double get totalHours =>
   /// Shared filter function for both events and work hours
   /// Uses currentDate.value (not DateTime.now())
   bool _isDateInFilter(String dateString) {
-    final itemDateStr = dateString; // Already in YYYY-MM-DD format
+    if (dateString.isEmpty) return false;
     
-    switch (activeTab.value) {
-      case 'day':
-        // Day view: exact date match (YYYY-MM-DD string comparison)
-        final currentDateStr = _formatDateString(currentDate.value);
-        return itemDateStr == currentDateStr;
-        
-      case 'week':
-        // Week view: date is within current week (Monday to Sunday, inclusive)
-        final weekDates = _getCurrentWeekDates();
-        final weekStart = weekDates.first;
-        final weekEnd = weekDates.last;
-        
-        // Parse item date
-        final itemDate = DateTime.parse(itemDateStr);
-        final itemDateOnly = DateTime(itemDate.year, itemDate.month, itemDate.day);
-        final weekStartOnly = DateTime(weekStart.year, weekStart.month, weekStart.day);
-        final weekEndOnly = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
-        
-        // Check if item date is within week range (inclusive boundaries)
-        return (itemDateOnly.isAtSameMomentAs(weekStartOnly) ||
-                itemDateOnly.isAtSameMomentAs(weekEndOnly) ||
-                (itemDateOnly.isAfter(weekStartOnly) && itemDateOnly.isBefore(weekEndOnly)));
-        
-      case 'month':
-        // Month view: date is in current month (year and month match)
-        final itemDate = DateTime.parse(itemDateStr);
-        return itemDate.year == currentDate.value.year &&
-               itemDate.month == currentDate.value.month;
-        
-      default:
-        return true;
+    try {
+      switch (activeTab.value) {
+        case 'day':
+          // Day view: exact date match (YYYY-MM-DD string comparison)
+          final currentDateStr = _formatDateString(currentDate.value);
+          final isMatch = dateString == currentDateStr;
+          return isMatch;
+          
+        case 'week':
+          // Week view: date is within current week (Monday to Sunday, inclusive)
+          final weekDates = _getCurrentWeekDates();
+          final weekStart = weekDates.first;
+          final weekEnd = weekDates.last;
+          
+          // Parse item date
+          final itemDate = DateTime.parse(dateString);
+          final itemDateOnly = DateTime(itemDate.year, itemDate.month, itemDate.day);
+          final weekStartOnly = DateTime(weekStart.year, weekStart.month, weekStart.day);
+          final weekEndOnly = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
+          
+          // Check if item date is within week range (inclusive boundaries)
+          final isMatch = (itemDateOnly.isAtSameMomentAs(weekStartOnly) ||
+                          itemDateOnly.isAtSameMomentAs(weekEndOnly) ||
+                          (itemDateOnly.isAfter(weekStartOnly) && itemDateOnly.isBefore(weekEndOnly)));
+          return isMatch;
+          
+        case 'month':
+          // Month view: date is in current month (year and month match)
+          // Parse the date string and compare year and month
+          final itemDate = DateTime.parse(dateString);
+          final itemYear = itemDate.year;
+          final itemMonth = itemDate.month;
+          final currentYear = currentDate.value.year;
+          final currentMonth = currentDate.value.month;
+          
+          // Compare year and month directly
+          final isMatch = itemYear == currentYear && itemMonth == currentMonth;
+          return isMatch;
+          
+        default:
+          return true;
+      }
+    } catch (e) {
+      print('❌ [Date Filter] Error filtering date: $dateString - $e');
+      print('   Active tab: ${activeTab.value}');
+      print('   Current date: ${currentDate.value}');
+      return false;
     }
   }
 
   /// Get filtered work logs based on active period
   /// Uses shared filter function for consistency
   List<WorkLog> getFilteredWorkLogs() {
-    return workLogs.where((log) {
-      // Convert log date to YYYY-MM-DD format
-      final logDateStr = _formatDateString(log.date);
-      return _isDateInFilter(logDateStr);
+    if (workLogs.isEmpty) return [];
+    
+    final filtered = workLogs.where((log) {
+      try {
+        // Convert log date to YYYY-MM-DD format
+        final logDateStr = _formatDateString(log.date);
+        return _isDateInFilter(logDateStr);
+      } catch (e) {
+        print('⚠️ [HoursController] Error filtering work log: $e');
+        print('   Log date: ${log.date}');
+        return false;
+      }
     }).toList();
+    
+    return filtered;
   }
 
   /// Get status color for badge
@@ -569,12 +595,15 @@ double get totalHours =>
 
     try {
       isLoading.value = true;
+      print('═══════════════════════════════════════════════════════════');
       print('🔄 [HoursController] Fetching work hours from API');
-      print('   Range: ${activeTab.value}');
+      print('   Active Tab: ${activeTab.value}');
       print('   Current Date: ${currentDate.value}');
+      print('   Date String: ${currentDate.value.toIso8601String().split('T')[0]}');
+      print('═══════════════════════════════════════════════════════════');
 
       // Format current date as YYYY-MM-DD
-      final currentDateStr = currentDate.value.toIso8601String().split('T')[0];
+      final currentDateStr = _formatDateString(currentDate.value);
 
       // Call API with range and current_date
       final result = await _authService.getUserHours(
@@ -584,29 +613,38 @@ double get totalHours =>
 
       if (result['success'] == true) {
         final data = result['data'];
-        if (data is List) {
+        if (data is List && data.isNotEmpty) {
           // Parse API response to WorkLog objects
           workLogs.value = data.map((entry) {
-            return WorkLog.fromApiJson(entry as Map<String, dynamic>);
-          }).toList();
+            try {
+              return WorkLog.fromApiJson(entry as Map<String, dynamic>);
+            } catch (e) {
+              print('⚠️ [HoursController] Error parsing work log entry: $e');
+              print('   Entry data: $entry');
+              return null;
+            }
+          }).whereType<WorkLog>().toList();
           
           // Sort by date (newest first)
           workLogs.sort((a, b) => b.date.compareTo(a.date));
           workLogs.refresh();
 
+          final filteredCount = getFilteredWorkLogs().length;
           print('✅ [HoursController] Fetched ${workLogs.length} work hours entries');
-          print('   Filtered entries: ${getFilteredWorkLogs().length}');
+          print('   Filtered entries for ${activeTab.value} view: $filteredCount');
+          print('   Current filter date: ${currentDate.value.year}-${currentDate.value.month}-${currentDate.value.day}');
         } else {
           workLogs.value = [];
-          print('⚠️ [HoursController] No work hours entries found');
+          print('⚠️ [HoursController] No work hours entries found in API response');
         }
       } else {
         print('❌ [HoursController] Failed to fetch work hours: ${result['message']}');
         // Fallback to empty list on error
         workLogs.value = [];
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('❌ [HoursController] Error fetching work hours: $e');
+      print('   Stack trace: $stackTrace');
       workLogs.value = [];
     } finally {
       isLoading.value = false;
@@ -799,7 +837,8 @@ double get totalHours =>
   /// Get filtered calendar events for display
   /// Returns events filtered by current date/tab selection
   List<CalendarEvent> getFilteredCalendarEvents() {
-    return calendarEvents;
+    // Re-apply filter in case tab/date changed after initial fetch
+    return _filterEventsByDate(calendarEvents);
   }
 
   // ============================================================

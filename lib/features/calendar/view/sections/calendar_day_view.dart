@@ -154,18 +154,21 @@ class CalendarDayView extends GetView<CalendarController> {
                             ),
                           ),
                         ),
-                        // User Columns - Flexible width
+                        // User Columns - Instant replacement, no animation
                         Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // User Columns
-                              ...users.map((user) {
-                          // Find meetings for this user that overlap with this hour slot
-                          return Flexible(
-                            child: Builder(
-                              builder: (context) {
-                                final userMeetings = meetings.where((meeting) {
+                          child: Obx(() {
+                            final paginatedUsers = controller.getPaginatedUsers(users);
+                            // Direct instant replacement - no animation
+                            return Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // User Columns - using paginated users
+                                ...paginatedUsers.map((user) {
+                                  // Find meetings for this user that overlap with this hour slot
+                                  return Flexible(
+                                    child: Builder(
+                                      builder: (context) {
+                                        final userMeetings = meetings.where((meeting) {
                             // Check if user is creator or attendee
                             final isUserMeeting = meeting.creator == user ||
                                 meeting.attendees.contains(user);
@@ -276,8 +279,9 @@ class CalendarDayView extends GetView<CalendarController> {
                             ),
                           );
                         }),
-                            ],
-                          ),
+                              ],
+                            );
+                          }),
                         ),
                         // Next Button Space - ALWAYS RESERVED (50px) to match header
                         Container(

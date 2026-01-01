@@ -1050,6 +1050,8 @@ class CalendarController extends GetxController {
       // Select new date
       selectedWeekDate.value = date;
     }
+    // Reset pagination when week date selection changes
+    resetUserPage();
   }
 
   /// Get current week dates (Monday to Sunday)
