@@ -87,36 +87,22 @@ class CalendarDayView extends GetView<CalendarController> {
     int userId,
     String scopeType,
   ) {
-    final numSlots = timeRange.endHour - timeRange.startHour + 1;
-    
-    // If no users, show empty state with proper height for SliverFillRemaining
-    if (paginatedUsers.isEmpty) {
-      return SizedBox.expand(
-        child: Container(
-          padding: const EdgeInsets.all(24),
-          child: Center(
-            child: Text(
-              'No events scheduled for this day',
-              style: AppTextStyles.bodyMedium.copyWith(
-                color: isDark
-                    ? AppColors.mutedForegroundDark
-                    : AppColors.mutedForegroundLight,
-              ),
-            ),
-          ),
-        ),
-      );
-    }
+    // CRITICAL: Always render 24 fixed time slots (0-23) regardless of events or users
+    // This ensures the time grid is always visible, even when empty
+    const int totalHours = 24;
+    const int startHour = 0;
+    const int endHour = 23;
 
     // SCROLLABLE CONTENT LAYOUT
     // Structure: Fixed Time column + Paginated user columns (NO horizontal scroll)
+    // Always render all 24 hours, even when there are no users or events
     return SingleChildScrollView(
       scrollDirection: Axis.vertical,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ...List.generate(numSlots, (index) {
-            final hour = timeRange.startHour + index;
+          ...List.generate(totalHours, (index) {
+            final hour = startHour + index;
             final timeLabel = CalendarUtils.formatHour(hour);
 
             return Container(
@@ -192,8 +178,27 @@ class CalendarDayView extends GetView<CalendarController> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // User Columns - using paginated users (already paginated in parent)
-                              ...paginatedUsers.map((user) {
+                              // If no users, show empty message in event area
+                              // Otherwise, show user columns
+                              if (paginatedUsers.isEmpty)
+                                Expanded(
+                                  child: Container(
+                                    padding: const EdgeInsets.all(16),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      'No events scheduled for this day',
+                                      style: AppTextStyles.bodyMedium.copyWith(
+                                        color: isDark
+                                            ? AppColors.mutedForegroundDark
+                                            : AppColors.mutedForegroundLight,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ),
+                                )
+                              else
+                                // User Columns - using paginated users (already paginated in parent)
+                                ...paginatedUsers.map((user) {
                                   // Find meetings for this user that overlap with this hour slot
                                   return Flexible(
                                     child: Builder(
