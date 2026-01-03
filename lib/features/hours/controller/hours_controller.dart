@@ -263,15 +263,28 @@ double get totalHours =>
         case 'month':
           // Month view: date is in current month (year and month match)
           // Parse the date string and compare year and month
-          final itemDate = DateTime.parse(dateString);
-          final itemYear = itemDate.year;
-          final itemMonth = itemDate.month;
-          final currentYear = currentDate.value.year;
-          final currentMonth = currentDate.value.month;
-          
-          // Compare year and month directly
-          final isMatch = itemYear == currentYear && itemMonth == currentMonth;
-          return isMatch;
+          try {
+            final itemDate = DateTime.parse(dateString);
+            final itemYear = itemDate.year;
+            final itemMonth = itemDate.month;
+            final currentYear = currentDate.value.year;
+            final currentMonth = currentDate.value.month;
+            
+            // Compare year and month directly
+            final isMatch = itemYear == currentYear && itemMonth == currentMonth;
+            
+            // Debug logging for month filter
+            if (!isMatch) {
+              print('🔍 [Month Filter] Entry filtered out:');
+              print('   Entry date: $itemYear-$itemMonth (from: $dateString)');
+              print('   Current date: $currentYear-$currentMonth');
+            }
+            
+            return isMatch;
+          } catch (e) {
+            print('❌ [Month Filter] Error parsing date: $dateString - $e');
+            return false;
+          }
           
         default:
           return true;
@@ -633,6 +646,15 @@ double get totalHours =>
           print('✅ [HoursController] Fetched ${workLogs.length} work hours entries');
           print('   Filtered entries for ${activeTab.value} view: $filteredCount');
           print('   Current filter date: ${currentDate.value.year}-${currentDate.value.month}-${currentDate.value.day}');
+          
+          // Debug: Log all entry dates when month filter is active
+          if (activeTab.value == 'month') {
+            print('📅 [Month Filter Debug] All entry dates:');
+            for (final log in workLogs) {
+              print('   Entry: ${log.date.year}-${log.date.month}-${log.date.day} (Status: ${log.status})');
+            }
+            print('   Looking for: ${currentDate.value.year}-${currentDate.value.month}');
+          }
         } else {
           workLogs.value = [];
           print('⚠️ [HoursController] No work hours entries found in API response');

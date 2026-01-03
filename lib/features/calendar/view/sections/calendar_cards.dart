@@ -2,7 +2,6 @@ import 'package:firefox_calendar/core/theme/app_text_styles.dart';
 import 'package:firefox_calendar/features/calendar/controller/calendar_controller.dart';
 import 'package:firefox_calendar/features/calendar/view/sections/hoverable_card.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 /// Meeting card widget for calendar cells
 class MeetingCard extends StatelessWidget {

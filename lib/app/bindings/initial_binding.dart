@@ -4,6 +4,7 @@ import 'package:firefox_calendar/features/auth/controller/login_controller.dart'
 import 'package:firefox_calendar/features/calendar/controller/calendar_controller.dart';
 import 'package:firefox_calendar/features/calendar/controller/create_event_controller.dart';
 import 'package:firefox_calendar/features/dashboard/controller/dashboard_controller.dart';
+import 'package:firefox_calendar/features/dashboard/controller/work_hours_dashboard_controller.dart';
 import 'package:firefox_calendar/features/hours/controller/hours_controller.dart';
 import 'package:firefox_calendar/features/payroll/controller/payroll_controller.dart';
 import 'package:firefox_calendar/features/profile/controller/edit_profile_controller.dart';
@@ -27,6 +28,10 @@ class InitialBinding extends Bindings {
     Get.lazyPut<ForgotPasswordController>(() => ForgotPasswordController(), fenix: true);
     
     Get.lazyPut<DashboardController>(() => DashboardController(), fenix: true);
+    Get.lazyPut<WorkHoursDashboardController>(
+      () => WorkHoursDashboardController(),
+      fenix: true,
+    );
     Get.lazyPut<CalendarController>(() => CalendarController(), fenix: true);
     Get.lazyPut<CreateEventController>(
       () => CreateEventController(),

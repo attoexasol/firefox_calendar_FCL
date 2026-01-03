@@ -1529,6 +1529,118 @@ class AuthService {
   }
 
   // =========================================================
+  // GET ALL USER HOURS (ALL USERS) API
+  // =========================================================
+
+  /// Get all user hours records (for all users)
+  /// 
+  /// Endpoint: GET /api/all/user_hours
+  /// 
+  /// Returns all work hour records for all users.
+  /// Frontend should filter by logged-in user ID and status.
+  /// 
+  /// Response Format:
+  /// {
+  ///   "status": true,
+  ///   "data": [
+  ///     {
+  ///       "id": 1,
+  ///       "work_date": "2025-01-13",
+  ///       "login_time": "2025-01-13 09:00:00",
+  ///       "logout_time": "2025-01-13 18:00:00",
+  ///       "total_hours": "8.0",
+  ///       "status": "approved",
+  ///       "user": {
+  ///         "id": 123
+  ///       }
+  ///     }
+  ///   ]
+  /// }
+  /// 
+  /// Note: This endpoint returns ALL users' records.
+  /// Frontend must filter by user.id and status = "approved"
+  Future<Map<String, dynamic>> getAllUserHours() async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Get All User Hours (All Users)');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+        'data': [],
+      };
+    }
+
+    try {
+      // Build query parameters (only api_token, no range/date filtering)
+      final queryParams = <String, String>{
+        'api_token': apiToken,
+      };
+
+      final uri = Uri.parse(getUserHoursEndpoint).replace(queryParameters: queryParams);
+
+      // Log request details
+      print('📍 URL: $uri');
+      print('🔷 METHOD: GET');
+      print('📤 REQUEST HEADERS:');
+      print('   Accept: application/json');
+      print('📤 QUERY PARAMETERS:');
+      queryParams.forEach((key, value) {
+        if (key == 'api_token') {
+          print('   $key: ${value.toString().substring(0, 20)}...');
+        } else {
+          print('   $key: $value');
+        }
+      });
+
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+        },
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        print('✅ [AuthService] Get All User Hours response status: ${response.statusCode}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'All user hours fetched successfully',
+          'data': responseData['data'] ?? [],
+        };
+      } else {
+        print('❌ [AuthService] Get All User Hours failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to fetch all user hours',
+          'data': [],
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Get All User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'data': [],
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
   // GET DASHBOARD SUMMARY API
   // =========================================================
 

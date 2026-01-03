@@ -3,6 +3,7 @@ import 'package:firefox_calendar/core/theme/app_text_styles.dart';
 import 'package:firefox_calendar/core/widgets/bottom_nav.dart';
 import 'package:firefox_calendar/core/widgets/top_bar.dart';
 import 'package:firefox_calendar/features/dashboard/controller/dashboard_controller.dart';
+import 'package:firefox_calendar/features/dashboard/widgets/work_hours_dashboard_cards.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -44,6 +45,11 @@ class DashboardScreen extends GetView<DashboardController> {
               // Metrics grid with loading state handling
               // Loading state is handled safely - values update reactively via Obx
               _buildMetricsGrid(isDark),
+
+              const SizedBox(height: 16),
+
+              // Work Hours Dashboard Cards
+              const WorkHoursDashboardCards(),
 
               const SizedBox(height: 16),
             ],
