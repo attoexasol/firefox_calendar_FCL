@@ -132,6 +132,7 @@ class CalendarDayView extends GetView<CalendarController> {
                   ),
                   // Paginated User Columns (NO horizontal scroll, fixed width)
                   // Structure: Fixed Prev button space + User columns + Fixed Next button space
+                  // (Empty spaces to match header alignment, arrows only in header)
                   Expanded(
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,

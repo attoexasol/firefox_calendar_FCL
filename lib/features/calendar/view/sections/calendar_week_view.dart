@@ -181,7 +181,7 @@ class CalendarWeekView extends GetView<CalendarController> {
       // Get paginated users by date
       final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
       
-      // Calculate if pagination should be shown
+      // Calculate if pagination should be shown (for alignment with header)
       // Get all unique users across all dates for pagination check
       final allUniqueUsers = <String>{};
       for (var users in usersByDate.values) {
@@ -242,12 +242,12 @@ class CalendarWeekView extends GetView<CalendarController> {
                   ),
                   // Paginated User Columns (NO horizontal scroll, fixed width)
                   // Structure: Fixed Prev button space + User columns + Fixed Next button space
+                  // (Empty spaces to match header alignment, arrows only in header)
                   Expanded(
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Prev Button - Conditionally shown based on scope and pagination
-                        // Hide in "Myself" view or when pagination not needed
+                        // Prev Button Space - Conditionally shown to match header
                         shouldShowPagination
                             ? Container(
                                 width: 50,
@@ -265,19 +265,6 @@ class CalendarWeekView extends GetView<CalendarController> {
                                     ),
                                   ),
                                 ),
-                                child: Obx(() => IconButton(
-                                  icon: const Icon(Icons.chevron_left),
-                                  onPressed: controller.canGoToPreviousPage()
-                                      ? () => controller.previousUserPage()
-                                      : null,
-                                  color: controller.canGoToPreviousPage()
-                                      ? (isDark
-                                          ? AppColors.foregroundDark
-                                          : AppColors.foregroundLight)
-                                      : (isDark
-                                          ? AppColors.mutedForegroundDark
-                                          : AppColors.mutedForegroundLight),
-                                )),
                               )
                             : const SizedBox.shrink(),
                         // User Columns - Instant replacement, no animation
@@ -412,8 +399,7 @@ class CalendarWeekView extends GetView<CalendarController> {
                             );
                           }),
                         ),
-                        // Next Button - Conditionally shown based on scope and pagination
-                        // Hide in "Myself" view or when pagination not needed
+                        // Next Button Space - Conditionally shown to match header
                         shouldShowPagination
                             ? Container(
                                 width: 50,
@@ -431,19 +417,6 @@ class CalendarWeekView extends GetView<CalendarController> {
                                     ),
                                   ),
                                 ),
-                                child: Obx(() => IconButton(
-                                  icon: const Icon(Icons.chevron_right),
-                                  onPressed: controller.canGoToNextPage(sortedUsers)
-                                      ? () => controller.nextUserPage(sortedUsers)
-                                      : null,
-                                  color: controller.canGoToNextPage(sortedUsers)
-                                      ? (isDark
-                                          ? AppColors.foregroundDark
-                                          : AppColors.foregroundLight)
-                                      : (isDark
-                                          ? AppColors.mutedForegroundDark
-                                          : AppColors.mutedForegroundLight),
-                                )),
                               )
                             : const SizedBox.shrink(),
                       ],
