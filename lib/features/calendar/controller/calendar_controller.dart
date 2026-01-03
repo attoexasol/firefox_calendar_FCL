@@ -1006,19 +1006,48 @@ class CalendarController extends GetxController {
   }
 
   /// Navigate to today
+  /// Jumps to today's date and applies the active filter (Day/Week/Month)
+  /// Refreshes calendar data to show only users with data for today/today's week/month
   void navigateToToday() {
     final oldDate = _formatDateString(currentDate.value);
     final now = DateTime.now();
+    
     // Always set to today's date, resetting time to start of day
     currentDate.value = DateTime(now.year, now.month, now.day);
+    
+    // Clear any week date selection
     selectedWeekDate.value = null;
-    resetUserPage(); // Reset pagination when navigating to today
+    
+    // Reset pagination when navigating to today
+    resetUserPage();
+    
     final newDateStr = _formatDateString(currentDate.value);
-    print('🔄 [CalendarController] Navigated to TODAY: $oldDate → $newDateStr');
-    // Refresh events when date changes
+    
+    print('═══════════════════════════════════════════════════════════');
+    print('🔄 [CalendarController] Navigated to TODAY');
+    print('   Old date: $oldDate');
+    print('   New date: $newDateStr');
+    print('   View type: ${viewType.value}');
+    print('   Scope: ${scopeType.value}');
+    
+    // Log date range based on view type
+    if (viewType.value == 'day') {
+      print('   Range: Day view - showing only ${newDateStr}');
+    } else if (viewType.value == 'week') {
+      final weekDates = getCurrentWeekDates();
+      print('   Range: Week view - showing week ${_formatDateString(weekDates.first)} to ${_formatDateString(weekDates.last)}');
+    } else if (viewType.value == 'month') {
+      final monthDates = getMonthDates();
+      final currentMonthDates = monthDates.where((md) => md.isCurrentMonth).toList();
+      if (currentMonthDates.isNotEmpty) {
+        print('   Range: Month view - showing month ${_formatDateString(currentMonthDates.first.date)} to ${_formatDateString(currentMonthDates.last.date)}');
+      }
+    }
+    print('═══════════════════════════════════════════════════════════');
+    
+    // Refresh events and work hours based on current view type and today's date
+    // fetchAllEvents() will automatically call fetchWorkHours() internally
     fetchAllEvents();
-    // Also refresh work hours
-    fetchWorkHours();
   }
 
   /// Set current date from calendar picker
