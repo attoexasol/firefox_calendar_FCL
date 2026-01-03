@@ -65,7 +65,7 @@ class MyApp extends StatelessWidget {
       // Theme Configuration
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      themeMode: ThemeMode.system, // Use system theme by default
+      themeMode: ThemeMode.light, // Default to light mode
       // Enhanced Routing Configuration with Session Persistence
       initialRoute:
           _getInitialRoute(), // Dynamic initial route based on login status
