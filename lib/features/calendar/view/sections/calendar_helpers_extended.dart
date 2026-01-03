@@ -75,10 +75,8 @@ class CalendarHelpers {
             (m.creator == userEmail || m.attendees.contains(userEmail)) &&
             (userId == 0 || m.userId == null || m.userId == userId)
           );
-          // Extract userId from controller within Obx context
-          final currentUserId = controller.userId.value;
-          final currentMeetings = controller.meetings;
-          final hasWorkHours = controller.getWorkHoursForUser(userEmail, dateStr, currentMeetings, currentUserId).isNotEmpty;
+          // Use passed userId and meetingsList (already extracted from Obx context)
+          final hasWorkHours = controller.getWorkHoursForUser(userEmail, dateStr, meetingsList, userId).isNotEmpty;
           if (hasMeetings || hasWorkHours) {
             usersByDate[dateStr] = [userEmail];
           } else {
@@ -89,14 +87,20 @@ class CalendarHelpers {
         }
       } else {
         // In "Everyone" view, show all users who have events OR work hours on this date
+        // filteredDayMeetings already includes work hours filtered by scope and date
         final users = CalendarUtils.getUsersFromMeetings(filteredDayMeetings);
-        // Also add users from work hours
+        // Also add users from work hours (work hours are already in filteredDayMeetings)
         final allUsers = <String>{...users};
         for (var meeting in filteredDayMeetings) {
-          if (meeting.creator.isNotEmpty) {
+          // Include work hour creators (already filtered by scope and date)
+          if (meeting.category == 'work_hour' && meeting.creator.isNotEmpty) {
+            allUsers.add(meeting.creator);
+          } else if (meeting.creator.isNotEmpty) {
+            // Also include regular event creators
             allUsers.add(meeting.creator);
           }
         }
+        // Only show users who have data (events or work hours) on this date
         usersByDate[dateStr] = allUsers.toList()..sort();
       }
     }
@@ -531,6 +535,12 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
       // Get paginated users (reactive)
       final paginatedUsers = controller.getPaginatedUsers(users);
       
+      // Calculate if pagination should be shown (for button visibility)
+      // Hide in "Myself" view (only 1 user) or when users fit on one page
+      final scopeType = controller.scopeType.value;
+      final shouldShowPagination = scopeType == 'everyone' && 
+                                  users.length > CalendarController.usersPerPage;
+      
       return Container(
         height: 80,
         decoration: BoxDecoration(
@@ -576,7 +586,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
              Expanded(
                child: Row(
                  children: [
-                   // Prev Button - ALWAYS RESERVED SPACE (50px)
+                   // Prev Button - ALWAYS RESERVED SPACE (50px) to match body alignment
                    Container(
                      width: 50,
                      height: 80,
@@ -593,19 +603,27 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                          ),
                        ),
                      ),
-                     child: Obx(() => IconButton(
-                       icon: const Icon(Icons.chevron_left),
-                       onPressed: controller.canGoToPreviousPage()
-                           ? () => controller.previousUserPage()
-                           : null, // Disabled when can't go previous
-                       color: controller.canGoToPreviousPage()
-                           ? (isDark
-                               ? AppColors.foregroundDark
-                               : AppColors.foregroundLight)
-                           : (isDark
-                               ? AppColors.mutedForegroundDark
-                               : AppColors.mutedForegroundLight), // Grayed out when disabled
-                     )),
+                     child: Obx(() {
+                       // Recalculate pagination need (reactive to scopeType changes)
+                       final scopeType = controller.scopeType.value;
+                       final shouldShowPagination = scopeType == 'everyone' && 
+                                                   users.length > CalendarController.usersPerPage;
+                       // Check if pagination is needed and if we can go previous
+                       final canGoPrev = shouldShowPagination && controller.canGoToPreviousPage();
+                       return IconButton(
+                         icon: const Icon(Icons.chevron_left),
+                         onPressed: canGoPrev
+                             ? () => controller.previousUserPage()
+                             : null, // Disabled when can't go previous or pagination not needed
+                         color: canGoPrev
+                             ? (isDark
+                                 ? AppColors.foregroundDark
+                                 : AppColors.foregroundLight)
+                             : (isDark
+                                 ? AppColors.mutedForegroundDark
+                                 : AppColors.mutedForegroundLight), // Grayed out when disabled
+                       );
+                     }),
                    ),
                    // Paginated User Columns - Instant replacement, no animation
                    Expanded(
@@ -685,7 +703,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                        },
                      ),
                    ),
-                   // Next Button - ALWAYS RESERVED SPACE (50px)
+                   // Next Button - ALWAYS RESERVED SPACE (50px) to match body alignment
                    Container(
                      width: 50,
                      height: 80,
@@ -702,19 +720,27 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                          ),
                        ),
                      ),
-                     child: Obx(() => IconButton(
-                       icon: const Icon(Icons.chevron_right),
-                       onPressed: controller.canGoToNextPage(users)
-                           ? () => controller.nextUserPage(users)
-                           : null, // Disabled when can't go next
-                       color: controller.canGoToNextPage(users)
-                           ? (isDark
-                               ? AppColors.foregroundDark
-                               : AppColors.foregroundLight)
-                           : (isDark
-                               ? AppColors.mutedForegroundDark
-                               : AppColors.mutedForegroundLight), // Grayed out when disabled
-                     )),
+                     child: Obx(() {
+                       // Recalculate pagination need (reactive to scopeType changes)
+                       final scopeType = controller.scopeType.value;
+                       final shouldShowPagination = scopeType == 'everyone' && 
+                                                   users.length > CalendarController.usersPerPage;
+                       // Check if pagination is needed and if we can go next
+                       final canGoNext = shouldShowPagination && controller.canGoToNextPage(users);
+                       return IconButton(
+                         icon: const Icon(Icons.chevron_right),
+                         onPressed: canGoNext
+                             ? () => controller.nextUserPage(users)
+                             : null, // Disabled when can't go next or pagination not needed
+                         color: canGoNext
+                             ? (isDark
+                                 ? AppColors.foregroundDark
+                                 : AppColors.foregroundLight)
+                             : (isDark
+                                 ? AppColors.mutedForegroundDark
+                                 : AppColors.mutedForegroundLight), // Grayed out when disabled
+                       );
+                     }),
                    ),
                  ],
                ),

@@ -35,27 +35,32 @@ class CalendarDayView extends GetView<CalendarController> {
       );
       final timeRange = controller.getTimeRange(filteredMeetings);
       
-      // Get users from meetings
+      // Get users from meetings (already filtered by scope and date)
+      // This includes both regular events and work hours that match the filter
       final usersFromMeetings = CalendarUtils.getUsersFromMeetings(filteredMeetings);
-      // Also include users who have work hours on this date
+      
+      // Also include users from work hours in filteredMeetings
+      // Work hours are already included in filteredMeetings if they match date and scope
       final allUsers = <String>{...usersFromMeetings};
-      // Use currentMeetings from Obx context instead of accessing RxList directly
-      for (var meeting in currentMeetings) {
-        if (meeting.category == 'work_hour' && meeting.date == dateStr) {
-          if (meeting.creator.isNotEmpty) {
-            allUsers.add(meeting.creator);
-          }
+      for (var meeting in filteredMeetings) {
+        // Include work hour creators (work hours are already filtered by scope and date)
+        if (meeting.category == 'work_hour' && meeting.creator.isNotEmpty) {
+          allUsers.add(meeting.creator);
         }
       }
+      
+      // Final list: only users who have events OR work hours on this date (respecting scope)
       final users = allUsers.toList()..sort();
       
-      // Get paginated users
+      // Get paginated users (screen-by-screen column pagination)
       final paginatedUsers = controller.getPaginatedUsers(users);
       
-      // Use already extracted userId and scopeType from above
+      // Pass ALL users list to body for pagination logic, and paginated users for display
+      // This ensures header and body stay in sync
       return _buildUserTimelineGrid(
         context,
-        paginatedUsers,
+        users, // Pass all users for pagination calculations
+        paginatedUsers, // Pass paginated users for display
         dateStr,
         filteredMeetings,
         timeRange,
@@ -67,9 +72,12 @@ class CalendarDayView extends GetView<CalendarController> {
   }
 
   /// Build user timeline grid (for day view with user columns)
+  /// [allUsers] - Complete list of all users (for pagination calculations)
+  /// [paginatedUsers] - Current page of users to display (already paginated)
   Widget _buildUserTimelineGrid(
     BuildContext context,
-    List<String> users,
+    List<String> allUsers,
+    List<String> paginatedUsers,
     String dateStr,
     List<Meeting> meetings,
     TimeRange timeRange,
@@ -79,17 +87,19 @@ class CalendarDayView extends GetView<CalendarController> {
   ) {
     final numSlots = timeRange.endHour - timeRange.startHour + 1;
     
-    // If no users, show empty state
-    if (users.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(24),
-        child: Center(
-          child: Text(
-            'No events scheduled for this day',
-            style: AppTextStyles.bodyMedium.copyWith(
-              color: isDark
-                  ? AppColors.mutedForegroundDark
-                  : AppColors.mutedForegroundLight,
+    // If no users, show empty state with proper height for SliverFillRemaining
+    if (paginatedUsers.isEmpty) {
+      return SizedBox.expand(
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          child: Center(
+            child: Text(
+              'No events scheduled for this day',
+              style: AppTextStyles.bodyMedium.copyWith(
+                color: isDark
+                    ? AppColors.mutedForegroundDark
+                    : AppColors.mutedForegroundLight,
+              ),
             ),
           ),
         ),
@@ -175,15 +185,13 @@ class CalendarDayView extends GetView<CalendarController> {
                           ),
                         ),
                         // User Columns - Instant replacement, no animation
+                        // Use paginatedUsers passed from parent (already paginated)
                         Expanded(
-                          child: Obx(() {
-                            final paginatedUsers = controller.getPaginatedUsers(users);
-                            // Direct instant replacement - no animation
-                            return Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                // User Columns - using paginated users
-                                ...paginatedUsers.map((user) {
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // User Columns - using paginated users (already paginated in parent)
+                              ...paginatedUsers.map((user) {
                                   // Find meetings for this user that overlap with this hour slot
                                   return Flexible(
                                     child: Builder(
@@ -301,8 +309,7 @@ class CalendarDayView extends GetView<CalendarController> {
                           );
                         }),
                               ],
-                            );
-                          }),
+                            ),
                         ),
                         // Next Button Space - ALWAYS RESERVED (50px) to match header
                         Container(

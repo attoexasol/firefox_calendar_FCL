@@ -1218,11 +1218,12 @@ class CalendarController extends GetxController {
   /// Get meetings by date
   /// NOTE: This method should only be called from within Obx widgets.
   /// Pass meetings list as parameter to avoid accessing RxList directly.
-  Map<String, List<Meeting>> getMeetingsByDate([List<Meeting>? meetingsList]) {
+  /// REQUIRED: meetingsList parameter must always be provided to prevent Rx access.
+  Map<String, List<Meeting>> getMeetingsByDate(List<Meeting> meetingsList) {
     final result = <String, List<Meeting>>{};
     
-    // Use passed list or fall back to RxList (for backward compatibility)
-    final meetingsToProcess = meetingsList ?? meetings;
+    // Use passed list (no fallback to prevent Rx access outside Obx)
+    final meetingsToProcess = meetingsList;
 
     print('📊 [CalendarController] Grouping ${meetingsToProcess.length} meetings by date:');
     for (var meeting in meetingsToProcess) {

@@ -149,14 +149,20 @@ class CalendarWeekView extends GetView<CalendarController> {
           }
         } else {
           // In "Everyone" view, show all users who have events OR work hours on this date
+          // filteredDayMeetings already includes work hours filtered by scope and date
           final users = CalendarUtils.getUsersFromMeetings(filteredDayMeetings);
-          // Also add users from work hours
+          // Also add users from work hours (work hours are already in filteredDayMeetings)
           final allUsers = <String>{...users};
           for (var meeting in filteredDayMeetings) {
-            if (meeting.creator.isNotEmpty) {
+            // Include work hour creators (already filtered by scope and date)
+            if (meeting.category == 'work_hour' && meeting.creator.isNotEmpty) {
+              allUsers.add(meeting.creator);
+            } else if (meeting.creator.isNotEmpty) {
+              // Also include regular event creators
               allUsers.add(meeting.creator);
             }
           }
+          // Only show users who have data (events or work hours) on this date
           usersByDate[dateStr] = allUsers.toList()..sort();
         }
       }
@@ -218,6 +224,28 @@ class CalendarWeekView extends GetView<CalendarController> {
         allUniqueUsers.addAll(users);
       }
       final sortedUsers = allUniqueUsers.toList()..sort();
+      
+      // Check if there are any users at all (empty state check)
+      final hasAnyUsers = sortedUsers.isNotEmpty;
+      
+      // If no users, show empty state with proper height for SliverFillRemaining
+      if (!hasAnyUsers) {
+        return SizedBox.expand(
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            child: Center(
+              child: Text(
+                'No events scheduled for this week',
+                style: AppTextStyles.bodyMedium.copyWith(
+                  color: isDark
+                      ? AppColors.mutedForegroundDark
+                      : AppColors.mutedForegroundLight,
+                ),
+              ),
+            ),
+          ),
+        );
+      }
       
       // Determine if pagination buttons should be shown
       // Hide in "Myself" view (only 1 user) or when users fit on one page
