@@ -22,6 +22,12 @@ class CalendarScreen extends GetView<CalendarController> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    
+    // Ensure user data is up-to-date when calendar screen is accessed
+    // This handles account switching scenarios where userId/userEmail may have changed
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      controller.loadUserData();
+    });
 
     return Scaffold(
       backgroundColor: isDark

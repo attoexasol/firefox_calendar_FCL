@@ -75,7 +75,7 @@ class CalendarController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    _loadUserData();
+    loadUserData();
     fetchAllEvents(); // Fetch events from API on init (will also fetch work hours)
   }
 
@@ -86,12 +86,35 @@ class CalendarController extends GetxController {
   }
 
   /// Load user data from storage
-  void _loadUserData() {
-    userEmail.value = storage.read('userEmail') ?? '';
-    userId.value = storage.read('userId') ?? 0;
-    print('👤 [CalendarController] Loaded user data:');
-    print('   userId: ${userId.value}');
-    print('   userEmail: ${userEmail.value}');
+  /// Called on init and when calendar screen is accessed to ensure current session data
+  /// Public method to allow external calls (e.g., from CalendarScreen)
+  void loadUserData() {
+    final newUserEmail = storage.read('userEmail') ?? '';
+    final newUserId = storage.read('userId') ?? 0;
+    
+    // Check if user changed before updating
+    final userChanged = userEmail.value != newUserEmail || userId.value != newUserId;
+    
+    if (userChanged) {
+      print('👤 [CalendarController] User data changed:');
+      print('   Old: userId=${userId.value}, email=${userEmail.value}');
+      print('   New: userId=$newUserId, email=$newUserEmail');
+      
+      // Clear calendar data when user changes to prevent cross-user data display
+      print('🔄 [CalendarController] User changed, clearing calendar data...');
+      allMeetings.clear();
+      meetings.clear();
+      workHours.clear();
+      resetUserPage();
+      
+      // Update user data after clearing
+      userEmail.value = newUserEmail;
+      userId.value = newUserId;
+    } else {
+      print('👤 [CalendarController] User data unchanged:');
+      print('   userId: ${userId.value}');
+      print('   userEmail: ${userEmail.value}');
+    }
   }
 
   /// Format date to consistent YYYY-MM-DD string
@@ -375,7 +398,7 @@ class CalendarController extends GetxController {
   Future<void> refreshEvents() async {
     print('🔄 [CalendarController] Refreshing events...');
     // Reload user data in case it changed
-    _loadUserData();
+    loadUserData();
     // Fetch fresh events from API (will also fetch and merge work hours)
     await fetchAllEvents();
   }
@@ -634,6 +657,10 @@ class CalendarController extends GetxController {
   /// 
   /// NOTE: This method should only be called from within Obx widgets.
   /// Pass meetings and userId as parameters to avoid accessing Rx values directly.
+  /// 
+  /// CRITICAL: Matches ONLY by the user whose column we're rendering (userEmail),
+  /// NOT by the currently logged-in user (currentUserId). This prevents work hours
+  /// from appearing under multiple user profiles when multiple accounts are logged in.
   List<WorkHour> getWorkHoursForUser(String userEmail, String dateStr, List<Meeting> meetingsList, int currentUserId) {
     // Extract work hours from filtered meetings (respects scope: everyone/myself)
     // This ensures work hours match the same filtering as events
@@ -642,8 +669,11 @@ class CalendarController extends GetxController {
       if (meeting.category != 'work_hour') return false;
       // Match by date
       if (meeting.date != dateStr) return false;
-      // Match by user email or userId
-      return meeting.creator == userEmail || meeting.userId == currentUserId;
+      // CRITICAL FIX: Match ONLY by the user whose column we're rendering (userEmail)
+      // Do NOT use currentUserId (logged-in user) as it causes work hours to appear
+      // under multiple profiles when multiple accounts are logged in on the same device
+      // Each work hour belongs to exactly one user (the creator)
+      return meeting.creator == userEmail;
     }).toList();
     
     // Convert meetings back to WorkHour objects for backward compatibility
