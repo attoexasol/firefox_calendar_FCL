@@ -31,80 +31,7 @@ class CalendarScreen extends GetView<CalendarController> {
         children: [
           // Main calendar content with CustomScrollView
           SafeArea(
-            child: Obx(() {
-              // Show loading state
-              if (controller.isLoadingEvents.value && controller.meetings.isEmpty) {
-                return CalendarLoadingState(isDark: isDark);
-              }
-
-              // Show error state (only if no events exist)
-              if (controller.eventsError.value.isNotEmpty && 
-                  controller.meetings.isEmpty &&
-                  !controller.isLoadingEvents.value) {
-                return CalendarErrorState(
-                  error: controller.eventsError.value,
-                  isDark: isDark,
-                  controller: controller,
-                );
-              }
-
-              // Show empty state (only if no events and no error)
-              if (controller.meetings.isEmpty && 
-                  !controller.isLoadingEvents.value &&
-                  controller.eventsError.value.isEmpty) {
-                return CalendarEmptyState(isDark: isDark);
-              }
-
-              // CustomScrollView with Slivers for sticky header behavior
-              return CustomScrollView(
-                slivers: [
-                  // Top filters that scroll away
-                  SliverToBoxAdapter(
-                    child: Column(
-                      children: [
-                        const TopBar(title: 'Calendar'),
-                        ShowCalendarBySection(
-                          isDark: isDark,
-                          controller: controller,
-                        ),
-                        ShowScheduleForSection(
-                          isDark: isDark,
-                          controller: controller,
-                        ),
-                        DateNavigationSection(
-                          isDark: isDark,
-                          controller: controller,
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  // Sticky Calendar Grid Header (Time + User Avatars + Day Labels)
-                  if (controller.viewType.value == 'week')
-                    WeekGridHeaderSliver(isDark: isDark)
-                  else if (controller.viewType.value == 'day')
-                    DayGridHeaderSliver(isDark: isDark),
-
-                  // Scrollable Calendar Body (Time Slots + Events)
-                  SliverFillRemaining(
-                    hasScrollBody: true,
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        return Obx(() {
-                          if (controller.viewType.value == 'week') {
-                            return CalendarWeekView(isDark: isDark);
-                          } else if (controller.viewType.value == 'day') {
-                            return CalendarDayView(isDark: isDark);
-                          } else {
-                            return CalendarMonthView(isDark: isDark);
-                          }
-                        });
-                      },
-                    ),
-                  ),
-                ],
-              );
-            }),
+            child: _buildCalendarContent(isDark),
           ),
           // Event Details Dialog listener
           EventDetailsListener(controller: controller),
@@ -127,5 +54,93 @@ class CalendarScreen extends GetView<CalendarController> {
 
       bottomNavigationBar: const BottomNav(),
     );
+  }
+
+  /// Build calendar content with proper Obx scoping
+  Widget _buildCalendarContent(bool isDark) {
+    // Always show calendar layout with filters
+    // Only show loading/error states if truly needed, but keep calendar structure
+    return Obx(() {
+      // Show loading state only during initial load (when no data exists yet)
+      if (controller.isLoadingEvents.value && controller.meetings.isEmpty && controller.allMeetings.isEmpty) {
+        return CalendarLoadingState(isDark: isDark);
+      }
+
+      // Show error state only if there's an error AND no data exists
+      // But still show calendar layout if we have any data
+      if (controller.eventsError.value.isNotEmpty && 
+          controller.meetings.isEmpty &&
+          controller.allMeetings.isEmpty &&
+          !controller.isLoadingEvents.value) {
+        return CalendarErrorState(
+          error: controller.eventsError.value,
+          isDark: isDark,
+          controller: controller,
+        );
+      }
+
+      // Always show calendar view - even when empty
+      // The calendar views will handle showing empty states internally if needed
+      return _buildCalendarView(isDark);
+    });
+  }
+
+  /// Build calendar view with view type selection
+  Widget _buildCalendarView(bool isDark) {
+    return Obx(() {
+      // Extract viewType once at the start
+      final viewType = controller.viewType.value;
+      
+      return CustomScrollView(
+        slivers: [
+          // Top filters that scroll away
+          SliverToBoxAdapter(
+            child: Column(
+              children: [
+                const TopBar(title: 'Calendar'),
+                ShowCalendarBySection(
+                  isDark: isDark,
+                  controller: controller,
+                ),
+                ShowScheduleForSection(
+                  isDark: isDark,
+                  controller: controller,
+                ),
+                DateNavigationSection(
+                  isDark: isDark,
+                  controller: controller,
+                ),
+              ],
+            ),
+          ),
+
+          // Sticky Calendar Grid Header (Time + User Avatars + Day Labels)
+          if (viewType == 'week')
+            WeekGridHeaderSliver(isDark: isDark)
+          else if (viewType == 'day')
+            DayGridHeaderSliver(isDark: isDark),
+
+          // Scrollable Calendar Body (Time Slots + Events)
+          SliverFillRemaining(
+            hasScrollBody: true,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Small Obx for view type only (nested for pagination reactivity)
+                return Obx(() {
+                  final currentViewType = controller.viewType.value;
+                  if (currentViewType == 'week') {
+                    return CalendarWeekView(isDark: isDark);
+                  } else if (currentViewType == 'day') {
+                    return CalendarDayView(isDark: isDark);
+                  } else {
+                    return CalendarMonthView(isDark: isDark);
+                  }
+                });
+              },
+            ),
+          ),
+        ],
+      );
+    });
   }
 }

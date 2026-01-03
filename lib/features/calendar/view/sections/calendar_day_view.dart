@@ -17,16 +17,30 @@ class CalendarDayView extends GetView<CalendarController> {
     return Obx(() {
       final currentDate = controller.currentDate.value;
       final dateStr = CalendarUtils.formatDateToIso(currentDate);
-      final meetingsByDate = controller.getMeetingsByDate();
+      final currentMeetings = controller.meetings;
+      final meetingsByDate = controller.getMeetingsByDate(currentMeetings);
       final dayMeetings = meetingsByDate[dateStr] ?? [];
-      final filteredMeetings = controller.filterMeetings(dayMeetings);
+      final currentScopeType = controller.scopeType.value;
+      final currentViewType = controller.viewType.value;
+      final currentSelectedWeekDate = controller.selectedWeekDate.value;
+      final currentUserId = controller.userId.value;
+      final currentUserEmail = controller.userEmail.value;
+      final filteredMeetings = controller.filterMeetings(
+        dayMeetings,
+        scopeTypeParam: currentScopeType,
+        viewTypeParam: currentViewType,
+        selectedWeekDateParam: currentSelectedWeekDate,
+        userIdParam: currentUserId,
+        userEmailParam: currentUserEmail,
+      );
       final timeRange = controller.getTimeRange(filteredMeetings);
       
       // Get users from meetings
       final usersFromMeetings = CalendarUtils.getUsersFromMeetings(filteredMeetings);
       // Also include users who have work hours on this date
       final allUsers = <String>{...usersFromMeetings};
-      for (var meeting in controller.meetings) {
+      // Use currentMeetings from Obx context instead of accessing RxList directly
+      for (var meeting in currentMeetings) {
         if (meeting.category == 'work_hour' && meeting.date == dateStr) {
           if (meeting.creator.isNotEmpty) {
             allUsers.add(meeting.creator);
@@ -38,6 +52,7 @@ class CalendarDayView extends GetView<CalendarController> {
       // Get paginated users
       final paginatedUsers = controller.getPaginatedUsers(users);
       
+      // Use already extracted userId and scopeType from above
       return _buildUserTimelineGrid(
         context,
         paginatedUsers,
@@ -45,6 +60,8 @@ class CalendarDayView extends GetView<CalendarController> {
         filteredMeetings,
         timeRange,
         isDark,
+        currentUserId,
+        currentScopeType,
       );
     });
   }
@@ -57,6 +74,8 @@ class CalendarDayView extends GetView<CalendarController> {
     List<Meeting> meetings,
     TimeRange timeRange,
     bool isDark,
+    int userId,
+    String scopeType,
   ) {
     final numSlots = timeRange.endHour - timeRange.startHour + 1;
     
@@ -225,7 +244,8 @@ class CalendarDayView extends GetView<CalendarController> {
                                   child: Builder(
                                     builder: (context) {
                                       // WORK HOURS OVERLAY: Get approved work hours for this user and date
-                                      final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                                      // Use meetings and userId from method parameters
+                                      final userWorkHours = controller.getWorkHoursForUser(user, dateStr, meetings, userId);
                                       
                                       // Filter work hours that start in this hour slot (for card display)
                                       final hourWorkHours = userWorkHours.where((workHour) {
@@ -325,15 +345,29 @@ class DayGridHeaderSliver extends GetView<CalendarController> {
     return Obx(() {
       final currentDate = controller.currentDate.value;
       final dateStr = CalendarUtils.formatDateToIso(currentDate);
-      final meetingsByDate = controller.getMeetingsByDate();
+      final currentMeetings = controller.meetings;
+      final meetingsByDate = controller.getMeetingsByDate(currentMeetings);
       final dayMeetings = meetingsByDate[dateStr] ?? [];
-      final filteredMeetings = controller.filterMeetings(dayMeetings);
+      final currentScopeType = controller.scopeType.value;
+      final currentViewType = controller.viewType.value;
+      final currentSelectedWeekDate = controller.selectedWeekDate.value;
+      final currentUserId = controller.userId.value;
+      final currentUserEmail = controller.userEmail.value;
+      final filteredMeetings = controller.filterMeetings(
+        dayMeetings,
+        scopeTypeParam: currentScopeType,
+        viewTypeParam: currentViewType,
+        selectedWeekDateParam: currentSelectedWeekDate,
+        userIdParam: currentUserId,
+        userEmailParam: currentUserEmail,
+      );
       
       // Get users from meetings
       final usersFromMeetings = CalendarUtils.getUsersFromMeetings(filteredMeetings);
       // Also include users who have work hours on this date
       final allUsers = <String>{...usersFromMeetings};
-      for (var meeting in controller.meetings) {
+      // Use currentMeetings from Obx context instead of accessing RxList directly
+      for (var meeting in currentMeetings) {
         if (meeting.category == 'work_hour' && meeting.date == dateStr) {
           if (meeting.creator.isNotEmpty) {
             allUsers.add(meeting.creator);
@@ -348,6 +382,7 @@ class DayGridHeaderSliver extends GetView<CalendarController> {
           users: users,
           isDark: isDark,
           controller: controller,
+          currentUserPage: controller.currentUserPage.value, // Capture Rx value in Obx
         ),
       );
     });

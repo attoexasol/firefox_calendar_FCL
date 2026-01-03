@@ -15,7 +15,14 @@ class CalendarWeekView extends GetView<CalendarController> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
+      // Extract Rx values once at the start of Obx
       final weekDates = controller.getCurrentWeekDates();
+      final selectedWeekDate = controller.selectedWeekDate.value;
+      final scopeType = controller.scopeType.value;
+      final userEmail = controller.userEmail.value;
+      final userId = controller.userId.value;
+      final meetings = controller.meetings;
+      final viewType = controller.viewType.value; // Extract viewType for filterMeetings
       
       // Create a set of week date strings for fast lookup
       final weekDateStrings = weekDates.map((date) {
@@ -37,7 +44,7 @@ class CalendarWeekView extends GetView<CalendarController> {
       print('🔍 [CalendarWeekView] Filtering meetings for week range: ${CalendarUtils.formatDateToIso(weekStart)} to ${CalendarUtils.formatDateToIso(weekEnd)}');
       print('   Week date strings: $weekDateStrings');
       
-      for (var meeting in controller.meetings) {
+      for (var meeting in meetings) {
         // Skip if date is empty or invalid
         if (meeting.date.isEmpty) continue;
         
@@ -76,7 +83,7 @@ class CalendarWeekView extends GetView<CalendarController> {
         }
       }
       
-      print('✅ [CalendarWeekView] Filtered ${weekMeetings.length} meetings from ${controller.meetings.length} total');
+      print('✅ [CalendarWeekView] Filtered ${weekMeetings.length} meetings from ${meetings.length} total');
       
       // Group filtered week meetings by date for display
       // CRITICAL: Use weekMeetings (week-filtered) instead of all controller.meetings
@@ -88,7 +95,14 @@ class CalendarWeekView extends GetView<CalendarController> {
         updatedMeetingsByDate[dateStr] = weekMeetings.where((m) => m.date == dateStr).toList();
       }
       
-      final filteredMeetings = controller.filterMeetings(weekMeetings);
+      final filteredMeetings = controller.filterMeetings(
+        weekMeetings,
+        scopeTypeParam: scopeType,
+        viewTypeParam: viewType,
+        selectedWeekDateParam: selectedWeekDate,
+        userIdParam: userId,
+        userEmailParam: userEmail,
+      );
       final timeRange = controller.getTimeRange(filteredMeetings);
       
       // Get users per date (each day can have different users)
@@ -97,8 +111,8 @@ class CalendarWeekView extends GetView<CalendarController> {
       final Map<String, List<String>> usersByDate = {};
       
       // If a week date is selected, only process that date
-      final datesToProcess = controller.selectedWeekDate.value != null
-          ? [controller.selectedWeekDate.value!]
+      final datesToProcess = selectedWeekDate != null
+          ? [selectedWeekDate]
           : weekDates;
       
       for (var date in datesToProcess) {
@@ -106,21 +120,27 @@ class CalendarWeekView extends GetView<CalendarController> {
         // Use filtered weekMeetings instead of all controller.meetings
         // This ensures we only show users for events within the week range
         final allDayMeetings = weekMeetings.where((m) => m.date == dateStr).toList();
-        final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
+        final filteredDayMeetings = controller.filterMeetings(
+          allDayMeetings,
+          scopeTypeParam: scopeType,
+          viewTypeParam: viewType,
+          selectedWeekDateParam: selectedWeekDate,
+          userIdParam: userId,
+          userEmailParam: userEmail,
+        );
         
         // Get unique users for this specific date
-        if (controller.scopeType.value == 'myself') {
+        if (scopeType == 'myself') {
           // In "Myself" view, only show current user if they have meetings or work hours
-          final currentUserEmail = controller.userEmail.value;
-          if (currentUserEmail.isNotEmpty) {
+          if (userEmail.isNotEmpty) {
             // Check if user has any meetings or work hours on this date
             final hasMeetings = filteredDayMeetings.any((m) => 
-              (m.creator == currentUserEmail || m.attendees.contains(currentUserEmail)) &&
-              (controller.userId.value == 0 || m.userId == null || m.userId == controller.userId.value)
+              (m.creator == userEmail || m.attendees.contains(userEmail)) &&
+              (userId == 0 || m.userId == null || m.userId == userId)
             );
-            final hasWorkHours = controller.getWorkHoursForUser(currentUserEmail, dateStr).isNotEmpty;
+            final hasWorkHours = controller.getWorkHoursForUser(userEmail, dateStr, weekMeetings, userId).isNotEmpty;
             if (hasMeetings || hasWorkHours) {
-              usersByDate[dateStr] = [currentUserEmail];
+              usersByDate[dateStr] = [userEmail];
             } else {
               usersByDate[dateStr] = [];
             }
@@ -142,8 +162,8 @@ class CalendarWeekView extends GetView<CalendarController> {
       }
       
       // If selectedWeekDate is set, only show users for that date (set others to empty)
-      if (controller.selectedWeekDate.value != null) {
-        final selectedDateStr = CalendarUtils.formatDateToIso(controller.selectedWeekDate.value!);
+      if (selectedWeekDate != null) {
+        final selectedDateStr = CalendarUtils.formatDateToIso(selectedWeekDate);
         for (var date in weekDates) {
           final dateStr = CalendarUtils.formatDateToIso(date);
           if (dateStr != selectedDateStr) {
@@ -161,6 +181,11 @@ class CalendarWeekView extends GetView<CalendarController> {
         updatedMeetingsByDate,
         timeRange,
         isDark,
+        scopeType,
+        userId,
+        viewType, // Pass viewType
+        selectedWeekDate, // Pass selectedWeekDate
+        userEmail, // Pass userEmail
       );
     });
   }
@@ -174,6 +199,11 @@ class CalendarWeekView extends GetView<CalendarController> {
     Map<String, List<Meeting>> meetingsByDate,
     TimeRange timeRange,
     bool isDark,
+    String scopeType,
+    int userId,
+    String viewType, // Add viewType parameter
+    DateTime? selectedWeekDate, // Add selectedWeekDate parameter
+    String userEmail, // Add userEmail parameter
   ) {
     final numSlots = timeRange.endHour - timeRange.startHour + 1;
 
@@ -191,7 +221,7 @@ class CalendarWeekView extends GetView<CalendarController> {
       
       // Determine if pagination buttons should be shown
       // Hide in "Myself" view (only 1 user) or when users fit on one page
-      final shouldShowPagination = controller.scopeType.value == 'everyone' && 
+      final shouldShowPagination = scopeType == 'everyone' && 
                                   sortedUsers.length > CalendarController.usersPerPage;
 
       return SingleChildScrollView(
@@ -274,6 +304,13 @@ class CalendarWeekView extends GetView<CalendarController> {
                             // Re-get paginated users to react to currentUserPage changes
                             final reactivePaginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
                             
+                            // Use parameters passed to method (already captured from outer Obx)
+                            final capturedScopeType = scopeType;
+                            final capturedViewType = viewType;
+                            final capturedSelectedWeekDate = selectedWeekDate;
+                            final capturedUserId = userId;
+                            final capturedUserEmail = userEmail;
+                            
                             // Direct instant replacement - no animation
                             return Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -283,7 +320,14 @@ class CalendarWeekView extends GetView<CalendarController> {
                                   final dateStr = CalendarUtils.formatDateToIso(date);
                                   // Use meetingsByDate which contains only filtered week meetings
                                   final allDayMeetings = meetingsByDate[dateStr] ?? [];
-                                  final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
+                                  final filteredDayMeetings = controller.filterMeetings(
+                                    allDayMeetings,
+                                    scopeTypeParam: capturedScopeType,
+                                    viewTypeParam: capturedViewType,
+                                    selectedWeekDateParam: capturedSelectedWeekDate,
+                                    userIdParam: capturedUserId,
+                                    userEmailParam: capturedUserEmail,
+                                  );
                                   final dayUsers = reactivePaginatedUsersByDate[dateStr] ?? [];
                           
                           if (dayUsers.isEmpty) {
@@ -296,9 +340,9 @@ class CalendarWeekView extends GetView<CalendarController> {
                                 child: Builder(
                                   builder: (context) {
                                     final userMeetings = filteredDayMeetings.where((meeting) {
-                                if (controller.scopeType.value == 'myself') {
-                                  if (controller.userId.value > 0 && meeting.userId != null) {
-                                    if (meeting.userId != controller.userId.value) {
+                                if (scopeType == 'myself') {
+                                  if (userId > 0 && meeting.userId != null) {
+                                    if (meeting.userId != userId) {
                                       return false;
                                     }
                                   } else {
@@ -328,7 +372,7 @@ class CalendarWeekView extends GetView<CalendarController> {
                               }).toList();
                               
                               // Get work hours for this user and date
-                              final userWorkHours = controller.getWorkHoursForUser(user, dateStr);
+                              final userWorkHours = controller.getWorkHoursForUser(user, dateStr, filteredDayMeetings, userId);
                               
                               final hourWorkHours = userWorkHours.where((workHour) {
                                 final loginParts = workHour.loginTime.split(':');
@@ -441,7 +485,24 @@ class WeekGridHeaderSliver extends GetView<CalendarController> {
   Widget build(BuildContext context) {
     return Obx(() {
       final weekDates = controller.getCurrentWeekDates();
-      final usersByDate = CalendarHelpers.getUsersByDateForWeek(weekDates, controller);
+      // Access Rx values within Obx and pass as parameters
+      final selectedWeekDate = controller.selectedWeekDate.value;
+      final scopeType = controller.scopeType.value;
+      final userEmail = controller.userEmail.value;
+      final userId = controller.userId.value;
+      final meetings = controller.meetings; // Extract meetings from Obx context
+      final viewType = controller.viewType.value; // Extract viewType from Obx context
+      
+      final usersByDate = CalendarHelpers.getUsersByDateForWeek(
+        weekDates,
+        controller,
+        selectedWeekDate,
+        scopeType,
+        userEmail,
+        userId,
+        meetings, // Pass meetings list from Obx context
+        viewType, // Pass viewType from Obx context
+      );
 
       return SliverPersistentHeader(
         pinned: true,
@@ -450,8 +511,9 @@ class WeekGridHeaderSliver extends GetView<CalendarController> {
           usersByDate: usersByDate,
           isDark: isDark,
           onDateClick: (date) => controller.handleWeekDateClick(date),
-          selectedWeekDate: controller.selectedWeekDate.value,
+          selectedWeekDate: selectedWeekDate,
           controller: controller,
+          currentUserPage: controller.currentUserPage.value, // Capture Rx value in Obx
         ),
       );
     });

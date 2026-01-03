@@ -16,8 +16,14 @@ class CalendarMonthView extends GetView<CalendarController> {
       padding: const EdgeInsets.all(12),
       child: Obx(() {
         final monthDates = controller.getMonthDates();
-        final meetingsByDate = controller.getMeetingsByDate();
+        final currentMeetings = controller.meetings;
+        final meetingsByDate = controller.getMeetingsByDate(currentMeetings);
         final today = DateTime.now();
+        final currentScopeType = controller.scopeType.value;
+        final currentViewType = controller.viewType.value;
+        final currentSelectedWeekDate = controller.selectedWeekDate.value;
+        final currentUserId = controller.userId.value;
+        final currentUserEmail = controller.userEmail.value;
 
         return GridView.builder(
           shrinkWrap: true,
@@ -55,6 +61,11 @@ class CalendarMonthView extends GetView<CalendarController> {
             final dateStr = CalendarUtils.formatDateToIso(date);
             final dayMeetings = controller.filterMeetings(
               meetingsByDate[dateStr] ?? [],
+              scopeTypeParam: currentScopeType,
+              viewTypeParam: currentViewType,
+              selectedWeekDateParam: currentSelectedWeekDate,
+              userIdParam: currentUserId,
+              userEmailParam: currentUserEmail,
             );
             final isToday =
                 date.year == today.year &&

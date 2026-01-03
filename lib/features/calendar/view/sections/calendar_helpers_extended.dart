@@ -32,38 +32,55 @@ class CalendarHelpers {
   /// Includes users from both meetings and work hours
   /// If selectedWeekDate is set, only returns users for that selected date
   /// This MUST match the calculation in CalendarWeekView.build() exactly
+  /// 
+  /// Note: Rx values should be accessed within Obx and passed as parameters
   static Map<String, List<String>> getUsersByDateForWeek(
     List<DateTime> weekDates,
     CalendarController controller,
+    DateTime? selectedWeekDate,
+    String scopeType,
+    String userEmail,
+    int userId,
+    List<Meeting> meetingsList, // Pass meetings list to avoid accessing RxList
+    String viewType, // Pass viewType to avoid accessing Rx value
   ) {
     final usersByDate = <String, List<String>>{};
     
     // If a week date is selected, only process that date
-    final datesToProcess = controller.selectedWeekDate.value != null
-        ? [controller.selectedWeekDate.value!]
+    final datesToProcess = selectedWeekDate != null
+        ? [selectedWeekDate]
         : weekDates;
     
     for (var date in datesToProcess) {
       final dateStr = CalendarUtils.formatDateToIso(date);
-      // Get all meetings for this date from controller (includes work hours)
+      // Get all meetings for this date from passed list (includes work hours)
       // This MUST match CalendarWeekView.build() exactly
-      final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
-      final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
+      final allDayMeetings = meetingsList.where((m) => m.date == dateStr).toList();
+      final filteredDayMeetings = controller.filterMeetings(
+        allDayMeetings,
+        scopeTypeParam: scopeType,
+        viewTypeParam: viewType,
+        selectedWeekDateParam: selectedWeekDate,
+        userIdParam: userId,
+        userEmailParam: userEmail,
+      );
       
       // Get unique users for this specific date
       // This MUST match CalendarWeekView.build() exactly
-      if (controller.scopeType.value == 'myself') {
+      if (scopeType == 'myself') {
         // In "Myself" view, only show current user if they have meetings or work hours
-        final currentUserEmail = controller.userEmail.value;
-        if (currentUserEmail.isNotEmpty) {
+        if (userEmail.isNotEmpty) {
           // Check if user has any meetings or work hours on this date
           final hasMeetings = filteredDayMeetings.any((m) => 
-            (m.creator == currentUserEmail || m.attendees.contains(currentUserEmail)) &&
-            (controller.userId.value == 0 || m.userId == null || m.userId == controller.userId.value)
+            (m.creator == userEmail || m.attendees.contains(userEmail)) &&
+            (userId == 0 || m.userId == null || m.userId == userId)
           );
-          final hasWorkHours = controller.getWorkHoursForUser(currentUserEmail, dateStr).isNotEmpty;
+          // Extract userId from controller within Obx context
+          final currentUserId = controller.userId.value;
+          final currentMeetings = controller.meetings;
+          final hasWorkHours = controller.getWorkHoursForUser(userEmail, dateStr, currentMeetings, currentUserId).isNotEmpty;
           if (hasMeetings || hasWorkHours) {
-            usersByDate[dateStr] = [currentUserEmail];
+            usersByDate[dateStr] = [userEmail];
           } else {
             usersByDate[dateStr] = [];
           }
@@ -85,8 +102,8 @@ class CalendarHelpers {
     }
     
     // If selectedWeekDate is set, only show users for that date (not all week dates)
-    if (controller.selectedWeekDate.value != null) {
-      final selectedDateStr = CalendarUtils.formatDateToIso(controller.selectedWeekDate.value!);
+    if (selectedWeekDate != null) {
+      final selectedDateStr = CalendarUtils.formatDateToIso(selectedWeekDate);
       // Keep only the selected date's users, set others to empty
       for (var date in weekDates) {
         final dateStr = CalendarUtils.formatDateToIso(date);
@@ -116,6 +133,7 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
   final Function(DateTime) onDateClick;
   final DateTime? selectedWeekDate;
   final CalendarController controller;
+  final int currentUserPage; // Store currentUserPage value (captured in Obx)
 
   WeekGridHeaderDelegate({
     required this.weekDates,
@@ -124,6 +142,7 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
     required this.onDateClick,
     required this.controller,
     this.selectedWeekDate,
+    required this.currentUserPage, // Capture Rx value when delegate is created
   });
 
   @override
@@ -159,17 +178,24 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 // Constrain to viewport width - no horizontal scroll
-                return Row(
-                  children: weekDates.map((date) {
-                    return _buildDayDateItem(date, isDark);
-                  }).toList(),
-                );
+                // Wrap in Obx to react to selectedWeekDate changes
+                return Obx(() {
+                  final currentSelectedWeekDate = controller.selectedWeekDate.value;
+                  return Row(
+                    children: weekDates.map((date) {
+                      return _buildDayDateItem(date, isDark, currentSelectedWeekDate);
+                    }).toList(),
+                  );
+                });
               },
             ),
           ),
           // User Header Row (Time + User Avatars with Pagination)
           // Structure: Fixed Time cell + Paginated user columns + Prev/Next buttons
           Obx(() {
+            // Extract Rx values once at the start
+            final scopeType = controller.scopeType.value;
+            
             // Get all unique users across all dates for pagination
             final allUniqueUsers = <String>{};
             for (var users in usersByDate.values) {
@@ -182,7 +208,7 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
             
             // Determine if pagination buttons should be shown
             // Hide in "Myself" view (only 1 user) or when users fit on one page
-            final shouldShowPagination = controller.scopeType.value == 'everyone' && 
+            final shouldShowPagination = scopeType == 'everyone' && 
                                         sortedUsers.length > CalendarController.usersPerPage;
               
               return Container(
@@ -401,10 +427,10 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
         isDark != oldDelegate.isDark ||
         selectedWeekDate != oldDelegate.selectedWeekDate ||
         controller != oldDelegate.controller ||
-        controller.currentUserPage.value != oldDelegate.controller.currentUserPage.value;
+        currentUserPage != oldDelegate.currentUserPage; // Compare stored values instead of accessing Rx
   }
 
-  Widget _buildDayDateItem(DateTime date, bool isDark) {
+  Widget _buildDayDateItem(DateTime date, bool isDark, DateTime? currentSelectedWeekDate) {
     final today = DateTime.now();
     final dateStr = CalendarUtils.formatDateToIso(date);
     final isToday =
@@ -412,8 +438,8 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
         date.month == today.month &&
         date.day == today.day;
     final isFiltered =
-        selectedWeekDate != null &&
-        CalendarUtils.formatDateToIso(selectedWeekDate!) == dateStr;
+        currentSelectedWeekDate != null &&
+        CalendarUtils.formatDateToIso(currentSelectedWeekDate) == dateStr;
 
     return Expanded(
       child: InkWell(
@@ -483,11 +509,13 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
   final List<String> users;
   final bool isDark;
   final CalendarController controller;
+  final int currentUserPage; // Store currentUserPage value (captured in Obx)
 
   DayGridHeaderDelegate({
     required this.users,
     required this.isDark,
     required this.controller,
+    required this.currentUserPage, // Capture Rx value when delegate is created
   });
 
   @override
@@ -498,10 +526,12 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    // Get paginated users (reactive via Obx in parent)
-    final paginatedUsers = controller.getPaginatedUsers(users);
-    
-    return Container(
+    // Wrap in Obx to react to currentUserPage changes
+    return Obx(() {
+      // Get paginated users (reactive)
+      final paginatedUsers = controller.getPaginatedUsers(users);
+      
+      return Container(
         height: 80,
         decoration: BoxDecoration(
           color: isDark
@@ -563,7 +593,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                          ),
                        ),
                      ),
-                     child: IconButton(
+                     child: Obx(() => IconButton(
                        icon: const Icon(Icons.chevron_left),
                        onPressed: controller.canGoToPreviousPage()
                            ? () => controller.previousUserPage()
@@ -575,7 +605,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                            : (isDark
                                ? AppColors.mutedForegroundDark
                                : AppColors.mutedForegroundLight), // Grayed out when disabled
-                     ),
+                     )),
                    ),
                    // Paginated User Columns - Instant replacement, no animation
                    Expanded(
@@ -672,7 +702,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                          ),
                        ),
                      ),
-                     child: IconButton(
+                     child: Obx(() => IconButton(
                        icon: const Icon(Icons.chevron_right),
                        onPressed: controller.canGoToNextPage(users)
                            ? () => controller.nextUserPage(users)
@@ -684,7 +714,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                            : (isDark
                                ? AppColors.mutedForegroundDark
                                : AppColors.mutedForegroundLight), // Grayed out when disabled
-                     ),
+                     )),
                    ),
                  ],
                ),
@@ -692,6 +722,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
           ],
         ),
       );
+    });
   }
 
   @override
@@ -699,7 +730,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
     return users != oldDelegate.users ||
         isDark != oldDelegate.isDark ||
         controller != oldDelegate.controller ||
-        controller.currentUserPage.value != oldDelegate.controller.currentUserPage.value;
+        currentUserPage != oldDelegate.currentUserPage; // Compare stored values instead of accessing Rx
   }
 }
 

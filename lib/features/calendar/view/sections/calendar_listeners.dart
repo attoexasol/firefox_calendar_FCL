@@ -23,21 +23,26 @@ class _EventDetailsListenerState extends State<EventDetailsListener> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
+      // Extract Rx value once in Obx scope
       final meeting = widget.controller.selectedMeeting.value;
       
       // Show dialog when a new meeting is selected
       if (meeting != null && meeting != _lastShownMeeting) {
         _lastShownMeeting = meeting;
         
+        // Capture meeting reference for use in callback (avoid accessing Rx in callback)
+        final capturedMeeting = meeting;
+        
         // Show dialog after current frame
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && widget.controller.selectedMeeting.value == meeting) {
+          // Use captured value instead of accessing Rx in callback
+          if (mounted && widget.controller.selectedMeeting.value == capturedMeeting) {
             Get.dialog(
               const EventDetailsDialog(),
               barrierDismissible: true,
             ).then((_) {
-              // Clean up when dialog is closed
-              if (mounted && widget.controller.selectedMeeting.value == meeting) {
+              // Clean up when dialog is closed (use captured value)
+              if (mounted && widget.controller.selectedMeeting.value == capturedMeeting) {
                 widget.controller.closeMeetingDetail();
                 _lastShownMeeting = null;
               }
@@ -73,21 +78,26 @@ class _HourDetailsListenerState extends State<HourDetailsListener> {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
+      // Extract Rx value once in Obx scope
       final workHour = widget.controller.selectedWorkHour.value;
       
       // Show dialog when a new work hour is selected
       if (workHour != null && workHour != _lastShownWorkHour) {
         _lastShownWorkHour = workHour;
         
+        // Capture workHour reference for use in callback (avoid accessing Rx in callback)
+        final capturedWorkHour = workHour;
+        
         // Show dialog after current frame
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted && widget.controller.selectedWorkHour.value == workHour) {
+          // Use captured value instead of accessing Rx in callback
+          if (mounted && widget.controller.selectedWorkHour.value == capturedWorkHour) {
             Get.dialog(
               const HourDetailsDialog(),
               barrierDismissible: true,
             ).then((_) {
-              // Clean up when dialog is closed
-              if (mounted && widget.controller.selectedWorkHour.value == workHour) {
+              // Clean up when dialog is closed (use captured value)
+              if (mounted && widget.controller.selectedWorkHour.value == capturedWorkHour) {
                 widget.controller.closeWorkHourDetail();
                 _lastShownWorkHour = null;
               }

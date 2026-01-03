@@ -46,39 +46,43 @@ class ShowCalendarBySection extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Obx(
-            () => Row(
-              children: [
-                Expanded(
-                  child: CalendarTabButton(
-                    label: 'Day',
-                    value: 'day',
-                    isActive: controller.viewType.value == 'day',
-                    isDark: isDark,
-                    controller: controller,
+            () {
+              // Extract Rx value once at the start
+              final viewType = controller.viewType.value;
+              return Row(
+                children: [
+                  Expanded(
+                    child: CalendarTabButton(
+                      label: 'Day',
+                      value: 'day',
+                      isActive: viewType == 'day',
+                      isDark: isDark,
+                      controller: controller,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: CalendarTabButton(
-                    label: 'Week',
-                    value: 'week',
-                    isActive: controller.viewType.value == 'week',
-                    isDark: isDark,
-                    controller: controller,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CalendarTabButton(
+                      label: 'Week',
+                      value: 'week',
+                      isActive: viewType == 'week',
+                      isDark: isDark,
+                      controller: controller,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: CalendarTabButton(
-                    label: 'Month',
-                    value: 'month',
-                    isActive: controller.viewType.value == 'month',
-                    isDark: isDark,
-                    controller: controller,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CalendarTabButton(
+                      label: 'Month',
+                      value: 'month',
+                      isActive: viewType == 'month',
+                      isDark: isDark,
+                      controller: controller,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -126,31 +130,35 @@ class ShowScheduleForSection extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Obx(
-            () => Row(
-              children: [
-                Expanded(
-                  child: CalendarTabButton(
-                    label: 'Everyone',
-                    value: 'everyone',
-                    isActive: controller.scopeType.value == 'everyone',
-                    isDark: isDark,
-                    controller: controller,
-                    isScope: true,
+            () {
+              // Extract Rx value once at the start
+              final scopeType = controller.scopeType.value;
+              return Row(
+                children: [
+                  Expanded(
+                    child: CalendarTabButton(
+                      label: 'Everyone',
+                      value: 'everyone',
+                      isActive: scopeType == 'everyone',
+                      isDark: isDark,
+                      controller: controller,
+                      isScope: true,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: CalendarTabButton(
-                    label: 'Myself',
-                    value: 'myself',
-                    isActive: controller.scopeType.value == 'myself',
-                    isDark: isDark,
-                    controller: controller,
-                    isScope: true,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CalendarTabButton(
+                      label: 'Myself',
+                      value: 'myself',
+                      isActive: scopeType == 'myself',
+                      isDark: isDark,
+                      controller: controller,
+                      isScope: true,
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              );
+            },
           ),
         ],
       ),
@@ -204,19 +212,23 @@ class DateNavigationSection extends StatelessWidget {
           // Date Display
           Expanded(
             child: Obx(() {
+              // Extract Rx values once at the start
+              final viewType = controller.viewType.value;
+              final currentDate = controller.currentDate.value;
+              
               String dateText;
-              if (controller.viewType.value == 'day') {
+              if (viewType == 'day') {
                 dateText = CalendarUtils.formatDate(
-                  controller.currentDate.value,
+                  currentDate,
                   'day',
                 );
-              } else if (controller.viewType.value == 'week') {
+              } else if (viewType == 'week') {
                 final weekDates = controller.getCurrentWeekDates();
                 dateText =
                     '${CalendarUtils.formatDate(weekDates.first, 'short')} - ${CalendarUtils.formatDate(weekDates.last, 'full')}';
               } else {
                 dateText = CalendarUtils.formatDate(
-                  controller.currentDate.value,
+                  currentDate,
                   'month',
                 );
               }

@@ -15,7 +15,7 @@ class CalendarController extends GetxController {
   final AuthService _authService = AuthService();
 
   // View types
-  final RxString viewType = 'week'.obs; // 'day', 'week', 'month'
+  final RxString viewType = 'month'.obs; // 'day', 'week', 'month' - Default to month
   final RxString scopeType = 'everyone'.obs; // 'everyone', 'myself'
 
   // Current date
@@ -631,16 +631,19 @@ class CalendarController extends GetxController {
   /// Used for rendering work hours overlay in calendar grid
   /// Returns ONLY approved work hours with both login_time and logout_time
   /// Now extracts from filtered meetings (respects scope filter) for consistency
-  List<WorkHour> getWorkHoursForUser(String userEmail, String dateStr) {
+  /// 
+  /// NOTE: This method should only be called from within Obx widgets.
+  /// Pass meetings and userId as parameters to avoid accessing Rx values directly.
+  List<WorkHour> getWorkHoursForUser(String userEmail, String dateStr, List<Meeting> meetingsList, int currentUserId) {
     // Extract work hours from filtered meetings (respects scope: everyone/myself)
     // This ensures work hours match the same filtering as events
-    final workHourMeetings = meetings.where((meeting) {
+    final workHourMeetings = meetingsList.where((meeting) {
       // Only work hours
       if (meeting.category != 'work_hour') return false;
       // Match by date
       if (meeting.date != dateStr) return false;
-      // Match by user email
-      return meeting.creator == userEmail || meeting.userId == userId.value;
+      // Match by user email or userId
+      return meeting.creator == userEmail || meeting.userId == currentUserId;
     }).toList();
     
     // Convert meetings back to WorkHour objects for backward compatibility
@@ -649,6 +652,13 @@ class CalendarController extends GetxController {
         .where((hour) => hour != null)
         .cast<WorkHour>()
         .toList();
+  }
+  
+  /// Legacy method - kept for backward compatibility but marked as deprecated
+  /// Use getWorkHoursForUser with explicit parameters instead
+  @Deprecated('Use getWorkHoursForUser with explicit meetings and userId parameters')
+  List<WorkHour> getWorkHoursForUserLegacy(String userEmail, String dateStr) {
+    return getWorkHoursForUser(userEmail, dateStr, meetings, userId.value);
   }
 
   /// Convert approved WorkHour objects to Meeting objects
@@ -1031,17 +1041,20 @@ class CalendarController extends GetxController {
     print('   Scope: ${scopeType.value}');
     
     // Log date range based on view type
-    if (viewType.value == 'day') {
+    // Note: getCurrentWeekDates() and getMonthDates() access Rx values
+    // They should only be called from within Obx widgets, not from controller methods
+    // Removed calls to these methods from here to prevent GetX warnings
+    final currentViewType = viewType.value;
+    if (currentViewType == 'day') {
       print('   Range: Day view - showing only ${newDateStr}');
-    } else if (viewType.value == 'week') {
-      final weekDates = getCurrentWeekDates();
-      print('   Range: Week view - showing week ${_formatDateString(weekDates.first)} to ${_formatDateString(weekDates.last)}');
-    } else if (viewType.value == 'month') {
-      final monthDates = getMonthDates();
-      final currentMonthDates = monthDates.where((md) => md.isCurrentMonth).toList();
-      if (currentMonthDates.isNotEmpty) {
-        print('   Range: Month view - showing month ${_formatDateString(currentMonthDates.first.date)} to ${_formatDateString(currentMonthDates.last.date)}');
-      }
+    } else if (currentViewType == 'week') {
+      // Don't call getCurrentWeekDates() here - it accesses Rx values
+      // The UI will call it from within Obx
+      print('   Range: Week view');
+    } else if (currentViewType == 'month') {
+      // Don't call getMonthDates() here - it accesses Rx values
+      // The UI will call it from within Obx
+      print('   Range: Month view');
     }
     print('═══════════════════════════════════════════════════════════');
     
@@ -1085,6 +1098,7 @@ class CalendarController extends GetxController {
 
   /// Get current week dates (Monday to Sunday)
   /// For week view, this calculates the week containing the current date
+  /// NOTE: This method accesses Rx values (currentDate.value) and should only be called from within Obx widgets
   List<DateTime> getCurrentWeekDates() {
     final currentDay = currentDate.value.weekday;
     // Calculate Monday of the week (weekday 1 = Monday)
@@ -1095,12 +1109,8 @@ class CalendarController extends GetxController {
       return monday.add(Duration(days: index));
     });
     
-    // Debug: Log week calculation
-    if (viewType.value == 'week') {
-      print('📅 [CalendarController] Week calculation:');
-      print('   Current date: ${_formatDateString(currentDate.value)}');
-      print('   Week range: ${_formatDateString(weekDates.first)} to ${_formatDateString(weekDates.last)}');
-    }
+    // Removed debug logging that accessed viewType.value to prevent GetX warnings
+    // Debug logging should be done in the calling context if needed
     
     return weekDates;
   }
@@ -1158,17 +1168,45 @@ class CalendarController extends GetxController {
   }
 
   /// Filter meetings based on scope and date
-  List<Meeting> filterMeetings(List<Meeting> meetings) {
+  /// NOTE: This method should only be called from within Obx widgets.
+  /// Pass scopeType, viewType, selectedWeekDate, userId, and userEmail as parameters.
+  List<Meeting> filterMeetings(
+    List<Meeting> meetings, {
+    String? scopeTypeParam,
+    String? viewTypeParam,
+    DateTime? selectedWeekDateParam,
+    int? userIdParam,
+    String? userEmailParam,
+  }) {
     var filtered = meetings;
 
+    // Use passed parameters or fall back to Rx values (for backward compatibility)
+    final currentScopeType = scopeTypeParam ?? scopeType.value;
+    final currentViewType = viewTypeParam ?? viewType.value;
+    final currentSelectedWeekDate = selectedWeekDateParam ?? selectedWeekDate.value;
+    final currentUserId = userIdParam ?? userId.value;
+    final currentUserEmail = userEmailParam ?? userEmail.value;
+
     // Apply scope filter
-    if (scopeType.value == 'myself') {
-      filtered = filtered.where((m) => isUserInvited(m)).toList();
+    if (currentScopeType == 'myself') {
+      filtered = filtered.where((m) {
+        // Check by user ID (preferred method)
+        if (currentUserId > 0 && m.userId != null) {
+          if (m.userId == currentUserId) {
+            return true;
+          }
+        }
+        // Fallback to email check
+        if (currentUserEmail.isNotEmpty) {
+          return m.attendees.contains(currentUserEmail) || m.creator == currentUserEmail;
+        }
+        return false;
+      }).toList();
     }
 
     // Apply week date filter (only in week view)
-    if (viewType.value == 'week' && selectedWeekDate.value != null) {
-      final selectedDate = selectedWeekDate.value!;
+    if (currentViewType == 'week' && currentSelectedWeekDate != null) {
+      final selectedDate = currentSelectedWeekDate;
       // Use consistent date format (YYYY-MM-DD)
       final dateStr = '${selectedDate.year}-${selectedDate.month.toString().padLeft(2, '0')}-${selectedDate.day.toString().padLeft(2, '0')}';
       filtered = filtered.where((m) => m.date == dateStr).toList();
@@ -1178,11 +1216,16 @@ class CalendarController extends GetxController {
   }
 
   /// Get meetings by date
-  Map<String, List<Meeting>> getMeetingsByDate() {
+  /// NOTE: This method should only be called from within Obx widgets.
+  /// Pass meetings list as parameter to avoid accessing RxList directly.
+  Map<String, List<Meeting>> getMeetingsByDate([List<Meeting>? meetingsList]) {
     final result = <String, List<Meeting>>{};
+    
+    // Use passed list or fall back to RxList (for backward compatibility)
+    final meetingsToProcess = meetingsList ?? meetings;
 
-    print('📊 [CalendarController] Grouping ${meetings.length} meetings by date:');
-    for (var meeting in meetings) {
+    print('📊 [CalendarController] Grouping ${meetingsToProcess.length} meetings by date:');
+    for (var meeting in meetingsToProcess) {
       if (!result.containsKey(meeting.date)) {
         result[meeting.date] = [];
       }
