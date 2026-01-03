@@ -52,8 +52,10 @@ class CalendarDayView extends GetView<CalendarController> {
       // Final list: only users who have events OR work hours on this date (respecting scope)
       final users = allUsers.toList()..sort();
       
-      // Get paginated users (screen-by-screen column pagination)
-      final paginatedUsers = controller.getPaginatedUsers(users);
+      // Extract page value in Obx before calling method
+      final currentPage = controller.currentUserPage.value;
+      // Get paginated users with explicit page (no Rx access in method)
+      final paginatedUsers = controller.getPaginatedUsersWithPage(users, currentPage);
       
       // Pass ALL users list to body for pagination logic, and paginated users for display
       // This ensures header and body stay in sync

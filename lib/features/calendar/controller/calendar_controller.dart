@@ -1199,23 +1199,23 @@ class CalendarController extends GetxController {
 
   /// Filter meetings based on scope and date
   /// NOTE: This method should only be called from within Obx widgets.
-  /// Pass scopeType, viewType, selectedWeekDate, userId, and userEmail as parameters.
+  /// All parameters are REQUIRED to prevent Rx value access outside Obx.
   List<Meeting> filterMeetings(
     List<Meeting> meetings, {
-    String? scopeTypeParam,
-    String? viewTypeParam,
+    required String scopeTypeParam,
+    required String viewTypeParam,
     DateTime? selectedWeekDateParam,
-    int? userIdParam,
-    String? userEmailParam,
+    required int userIdParam,
+    required String userEmailParam,
   }) {
     var filtered = meetings;
 
-    // Use passed parameters or fall back to Rx values (for backward compatibility)
-    final currentScopeType = scopeTypeParam ?? scopeType.value;
-    final currentViewType = viewTypeParam ?? viewType.value;
-    final currentSelectedWeekDate = selectedWeekDateParam ?? selectedWeekDate.value;
-    final currentUserId = userIdParam ?? userId.value;
-    final currentUserEmail = userEmailParam ?? userEmail.value;
+    // Use passed parameters only (NO fallback to Rx values to prevent GetX errors)
+    final currentScopeType = scopeTypeParam;
+    final currentViewType = viewTypeParam;
+    final currentSelectedWeekDate = selectedWeekDateParam;
+    final currentUserId = userIdParam;
+    final currentUserEmail = userEmailParam;
 
     // Apply scope filter
     if (currentScopeType == 'myself') {
@@ -1502,19 +1502,25 @@ class CalendarController extends GetxController {
 
   /// Get paginated users from a list
   /// Returns a subset of users for the current page
+  /// NOTE: This method accesses Rx values and should only be called from within Obx widgets.
+  /// For better control, use getPaginatedUsersWithPage instead.
   List<String> getPaginatedUsers(List<String> allUsers) {
+    return getPaginatedUsersWithPage(allUsers, currentUserPage.value);
+  }
+
+  /// Get paginated users from a list with explicit page number
+  /// Returns a subset of users for the specified page
+  /// This method does NOT access Rx values, making it safe to call from anywhere.
+  List<String> getPaginatedUsersWithPage(List<String> allUsers, int page) {
     if (allUsers.isEmpty) return [];
     
-    final startIndex = currentUserPage.value * usersPerPage;
+    final startIndex = page * usersPerPage;
     final endIndex = (startIndex + usersPerPage).clamp(0, allUsers.length);
     
     if (startIndex >= allUsers.length) {
-      // If current page is beyond available users, reset to last valid page
-      final lastPage = ((allUsers.length - 1) / usersPerPage).floor();
-      currentUserPage.value = lastPage;
-      final newStartIndex = currentUserPage.value * usersPerPage;
-      final newEndIndex = (newStartIndex + usersPerPage).clamp(0, allUsers.length);
-      return allUsers.sublist(newStartIndex, newEndIndex);
+      // If current page is beyond available users, return empty list
+      // (Don't modify Rx value here - let the caller handle page reset)
+      return [];
     }
     
     return allUsers.sublist(startIndex, endIndex);
@@ -1522,7 +1528,16 @@ class CalendarController extends GetxController {
 
   /// Get paginated users by date for week view
   /// Returns a map of date -> paginated users for that date
+  /// NOTE: This method accesses Rx values and should only be called from within Obx widgets.
+  /// For better control, use getPaginatedUsersByDateWithPage instead.
   Map<String, List<String>> getPaginatedUsersByDate(Map<String, List<String>> usersByDate) {
+    return getPaginatedUsersByDateWithPage(usersByDate, currentUserPage.value);
+  }
+
+  /// Get paginated users by date for week view with explicit page number
+  /// Returns a map of date -> paginated users for that date
+  /// This method does NOT access Rx values, making it safe to call from anywhere.
+  Map<String, List<String>> getPaginatedUsersByDateWithPage(Map<String, List<String>> usersByDate, int page) {
     final paginatedMap = <String, List<String>>{};
     
     // Collect all unique users across all dates
@@ -1532,8 +1547,8 @@ class CalendarController extends GetxController {
     }
     final sortedUsers = allUniqueUsers.toList()..sort();
     
-    // Get paginated users
-    final paginatedUsers = getPaginatedUsers(sortedUsers);
+    // Get paginated users with explicit page
+    final paginatedUsers = getPaginatedUsersWithPage(sortedUsers, page);
     
     // Filter usersByDate to only include paginated users
     for (var entry in usersByDate.entries) {
@@ -1566,15 +1581,31 @@ class CalendarController extends GetxController {
   }
 
   /// Check if can navigate to next page
+  /// NOTE: This method accesses Rx values and should only be called from within Obx widgets.
+  /// For better control, use canGoToNextPageWithPage instead.
   bool canGoToNextPage(List<String> allUsers) {
+    return canGoToNextPageWithPage(allUsers, currentUserPage.value);
+  }
+
+  /// Check if can navigate to next page with explicit page number
+  /// This method does NOT access Rx values, making it safe to call from anywhere.
+  bool canGoToNextPageWithPage(List<String> allUsers, int page) {
     if (allUsers.isEmpty) return false;
     final totalPages = ((allUsers.length - 1) / usersPerPage).floor() + 1;
-    return currentUserPage.value < totalPages - 1;
+    return page < totalPages - 1;
   }
 
   /// Check if can navigate to previous page
+  /// NOTE: This method accesses Rx values and should only be called from within Obx widgets.
+  /// For better control, use canGoToPreviousPageWithPage instead.
   bool canGoToPreviousPage() {
-    return currentUserPage.value > 0;
+    return canGoToPreviousPageWithPage(currentUserPage.value);
+  }
+
+  /// Check if can navigate to previous page with explicit page number
+  /// This method does NOT access Rx values, making it safe to call from anywhere.
+  bool canGoToPreviousPageWithPage(int page) {
+    return page > 0;
   }
 
   /// Reset pagination to first page

@@ -64,22 +64,28 @@ class CalendarScreen extends GetView<CalendarController> {
 
   /// Build calendar content with proper Obx scoping
   Widget _buildCalendarContent(bool isDark) {
-    // Always show calendar layout with filters
-    // Only show loading/error states if truly needed, but keep calendar structure
+    // Single Obx at the top level - extract all observables here
     return Obx(() {
+      // Extract all observables at the top level
+      final isLoadingEvents = controller.isLoadingEvents.value;
+      final eventsError = controller.eventsError.value;
+      final meetings = controller.meetings;
+      final allMeetings = controller.allMeetings;
+      final viewType = controller.viewType.value;
+      
       // Show loading state only during initial load (when no data exists yet)
-      if (controller.isLoadingEvents.value && controller.meetings.isEmpty && controller.allMeetings.isEmpty) {
+      if (isLoadingEvents && meetings.isEmpty && allMeetings.isEmpty) {
         return CalendarLoadingState(isDark: isDark);
       }
 
       // Show error state only if there's an error AND no data exists
       // But still show calendar layout if we have any data
-      if (controller.eventsError.value.isNotEmpty && 
-          controller.meetings.isEmpty &&
-          controller.allMeetings.isEmpty &&
-          !controller.isLoadingEvents.value) {
+      if (eventsError.isNotEmpty && 
+          meetings.isEmpty &&
+          allMeetings.isEmpty &&
+          !isLoadingEvents) {
         return CalendarErrorState(
-          error: controller.eventsError.value,
+          error: eventsError,
           isDark: isDark,
           controller: controller,
         );
@@ -87,66 +93,59 @@ class CalendarScreen extends GetView<CalendarController> {
 
       // Always show calendar view - even when empty
       // The calendar views will handle showing empty states internally if needed
-      return _buildCalendarView(isDark);
+      return _buildCalendarView(isDark, viewType);
     });
   }
 
   /// Build calendar view with view type selection
-  Widget _buildCalendarView(bool isDark) {
-    return Obx(() {
-      // Extract viewType once at the start
-      final viewType = controller.viewType.value;
-      
-      return CustomScrollView(
-        slivers: [
-          // Top filters that scroll away
-          SliverToBoxAdapter(
-            child: Column(
-              children: [
-                const TopBar(title: 'Calendar'),
-                ShowCalendarBySection(
-                  isDark: isDark,
-                  controller: controller,
-                ),
-                ShowScheduleForSection(
-                  isDark: isDark,
-                  controller: controller,
-                ),
-                DateNavigationSection(
-                  isDark: isDark,
-                  controller: controller,
-                ),
-              ],
-            ),
+  Widget _buildCalendarView(bool isDark, String viewType) {
+    // No Obx here - viewType is passed as parameter from parent Obx
+    return CustomScrollView(
+      slivers: [
+        // Top filters that scroll away
+        SliverToBoxAdapter(
+          child: Column(
+            children: [
+              const TopBar(title: 'Calendar'),
+              ShowCalendarBySection(
+                isDark: isDark,
+                controller: controller,
+              ),
+              ShowScheduleForSection(
+                isDark: isDark,
+                controller: controller,
+              ),
+              DateNavigationSection(
+                isDark: isDark,
+                controller: controller,
+              ),
+            ],
           ),
+        ),
 
-          // Sticky Calendar Grid Header (Time + User Avatars + Day Labels)
-          if (viewType == 'week')
-            WeekGridHeaderSliver(isDark: isDark)
-          else if (viewType == 'day')
-            DayGridHeaderSliver(isDark: isDark),
+        // Sticky Calendar Grid Header (Time + User Avatars + Day Labels)
+        if (viewType == 'week')
+          WeekGridHeaderSliver(isDark: isDark)
+        else if (viewType == 'day')
+          DayGridHeaderSliver(isDark: isDark),
 
-          // Scrollable Calendar Body (Time Slots + Events)
-          SliverFillRemaining(
-            hasScrollBody: true,
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // Small Obx for view type only (nested for pagination reactivity)
-                return Obx(() {
-                  final currentViewType = controller.viewType.value;
-                  if (currentViewType == 'week') {
-                    return CalendarWeekView(isDark: isDark);
-                  } else if (currentViewType == 'day') {
-                    return CalendarDayView(isDark: isDark);
-                  } else {
-                    return CalendarMonthView(isDark: isDark);
-                  }
-                });
-              },
-            ),
+        // Scrollable Calendar Body (Time Slots + Events)
+        SliverFillRemaining(
+          hasScrollBody: true,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // No nested Obx - viewType is already passed from parent
+              if (viewType == 'week') {
+                return CalendarWeekView(isDark: isDark);
+              } else if (viewType == 'day') {
+                return CalendarDayView(isDark: isDark);
+              } else {
+                return CalendarMonthView(isDark: isDark);
+              }
+            },
           ),
-        ],
-      );
-    });
+        ),
+      ],
+    );
   }
 }

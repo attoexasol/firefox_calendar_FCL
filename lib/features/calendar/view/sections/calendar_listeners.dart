@@ -35,14 +35,14 @@ class _EventDetailsListenerState extends State<EventDetailsListener> {
         
         // Show dialog after current frame
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          // Use captured value instead of accessing Rx in callback
-          if (mounted && widget.controller.selectedMeeting.value == capturedMeeting) {
+          // Use captured value - don't access Rx in callback
+          if (mounted) {
             Get.dialog(
               const EventDetailsDialog(),
               barrierDismissible: true,
             ).then((_) {
-              // Clean up when dialog is closed (use captured value)
-              if (mounted && widget.controller.selectedMeeting.value == capturedMeeting) {
+              // Clean up when dialog is closed - don't access Rx in callback
+              if (mounted) {
                 widget.controller.closeMeetingDetail();
                 _lastShownMeeting = null;
               }
@@ -90,14 +90,14 @@ class _HourDetailsListenerState extends State<HourDetailsListener> {
         
         // Show dialog after current frame
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          // Use captured value instead of accessing Rx in callback
-          if (mounted && widget.controller.selectedWorkHour.value == capturedWorkHour) {
+          // Use captured value - don't access Rx in callback
+          if (mounted) {
             Get.dialog(
               const HourDetailsDialog(),
               barrierDismissible: true,
             ).then((_) {
-              // Clean up when dialog is closed (use captured value)
-              if (mounted && widget.controller.selectedWorkHour.value == capturedWorkHour) {
+              // Clean up when dialog is closed - don't access Rx in callback
+              if (mounted) {
                 widget.controller.closeWorkHourDetail();
                 _lastShownWorkHour = null;
               }

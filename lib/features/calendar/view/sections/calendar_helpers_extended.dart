@@ -199,6 +199,7 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
           Obx(() {
             // Extract Rx values once at the start
             final scopeType = controller.scopeType.value;
+            final currentPage = controller.currentUserPage.value; // Extract page value in Obx
             
             // Get all unique users across all dates for pagination
             final allUniqueUsers = <String>{};
@@ -207,8 +208,8 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
             }
             final sortedUsers = allUniqueUsers.toList()..sort();
             
-            // Get paginated users by date
-            final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+            // Get paginated users by date with explicit page (no Rx access in method)
+            final paginatedUsersByDate = controller.getPaginatedUsersByDateWithPage(usersByDate, currentPage);
             
             // Determine if pagination buttons should be shown
             // Hide in "Myself" view (only 1 user) or when users fit on one page
@@ -279,27 +280,33 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                                     ),
                                   ),
                                 ),
-                                child: Obx(() => IconButton(
-                                  icon: const Icon(Icons.chevron_left),
-                                  onPressed: controller.canGoToPreviousPage()
-                                      ? () => controller.previousUserPage()
-                                      : null,
-                                  color: controller.canGoToPreviousPage()
-                                      ? (isDark
-                                          ? AppColors.foregroundDark
-                                          : AppColors.foregroundLight)
-                                      : (isDark
-                                          ? AppColors.mutedForegroundDark
-                                          : AppColors.mutedForegroundLight),
-                                )),
+                                child: Obx(() {
+                                  final currentPage = controller.currentUserPage.value;
+                                  final canGoPrev = controller.canGoToPreviousPageWithPage(currentPage);
+                                  return IconButton(
+                                    icon: const Icon(Icons.chevron_left),
+                                    onPressed: canGoPrev
+                                        ? () => controller.previousUserPage()
+                                        : null,
+                                    color: canGoPrev
+                                        ? (isDark
+                                            ? AppColors.foregroundDark
+                                            : AppColors.foregroundLight)
+                                        : (isDark
+                                            ? AppColors.mutedForegroundDark
+                                            : AppColors.mutedForegroundLight),
+                                  );
+                                }),
                               )
                             : const SizedBox.shrink(),
                         // User Columns for each day (paginated) - Instant replacement, no animation
                         // Wrapped in Obx to react to pagination changes
                         Expanded(
                           child: Obx(() {
-                            // Re-get paginated users to react to currentUserPage changes
-                            final reactivePaginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+                            // Extract page value in Obx before calling method
+                            final currentPage = controller.currentUserPage.value;
+                            // Re-get paginated users to react to currentUserPage changes (no Rx access in method)
+                            final reactivePaginatedUsersByDate = controller.getPaginatedUsersByDateWithPage(usersByDate, currentPage);
                             
                             // Direct instant replacement - no animation
                             return Row(
@@ -397,19 +404,23 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                                     ),
                                   ),
                                 ),
-                                child: Obx(() => IconButton(
-                                  icon: const Icon(Icons.chevron_right),
-                                  onPressed: controller.canGoToNextPage(sortedUsers)
-                                      ? () => controller.nextUserPage(sortedUsers)
-                                      : null,
-                                  color: controller.canGoToNextPage(sortedUsers)
-                                      ? (isDark
-                                          ? AppColors.foregroundDark
-                                          : AppColors.foregroundLight)
-                                      : (isDark
-                                          ? AppColors.mutedForegroundDark
-                                          : AppColors.mutedForegroundLight),
-                                )),
+                                child: Obx(() {
+                                  final currentPage = controller.currentUserPage.value;
+                                  final canGoNext = controller.canGoToNextPageWithPage(sortedUsers, currentPage);
+                                  return IconButton(
+                                    icon: const Icon(Icons.chevron_right),
+                                    onPressed: canGoNext
+                                        ? () => controller.nextUserPage(sortedUsers)
+                                        : null,
+                                    color: canGoNext
+                                        ? (isDark
+                                            ? AppColors.foregroundDark
+                                            : AppColors.foregroundLight)
+                                        : (isDark
+                                            ? AppColors.mutedForegroundDark
+                                            : AppColors.mutedForegroundLight),
+                                  );
+                                }),
                               )
                             : const SizedBox.shrink(),
                       ],
@@ -532,8 +543,10 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
     // Wrap in Obx to react to currentUserPage changes
     return Obx(() {
-      // Get paginated users (reactive)
-      final paginatedUsers = controller.getPaginatedUsers(users);
+      // Extract page value in Obx before calling method
+      final currentPage = controller.currentUserPage.value;
+      // Get paginated users with explicit page (no Rx access in method)
+      final paginatedUsers = controller.getPaginatedUsersWithPage(users, currentPage);
       
       // Calculate if pagination should be shown (for button visibility)
       // Hide in "Myself" view (only 1 user) or when users fit on one page
@@ -606,10 +619,11 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                      child: Obx(() {
                        // Recalculate pagination need (reactive to scopeType changes)
                        final scopeType = controller.scopeType.value;
+                       final currentPage = controller.currentUserPage.value;
                        final shouldShowPagination = scopeType == 'everyone' && 
                                                    users.length > CalendarController.usersPerPage;
-                       // Check if pagination is needed and if we can go previous
-                       final canGoPrev = shouldShowPagination && controller.canGoToPreviousPage();
+                       // Check if pagination is needed and if we can go previous (no Rx access in method)
+                       final canGoPrev = shouldShowPagination && controller.canGoToPreviousPageWithPage(currentPage);
                        return IconButton(
                          icon: const Icon(Icons.chevron_left),
                          onPressed: canGoPrev
@@ -723,10 +737,11 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                      child: Obx(() {
                        // Recalculate pagination need (reactive to scopeType changes)
                        final scopeType = controller.scopeType.value;
+                       final currentPage = controller.currentUserPage.value;
                        final shouldShowPagination = scopeType == 'everyone' && 
                                                    users.length > CalendarController.usersPerPage;
-                       // Check if pagination is needed and if we can go next
-                       final canGoNext = shouldShowPagination && controller.canGoToNextPage(users);
+                       // Check if pagination is needed and if we can go next (no Rx access in method)
+                       final canGoNext = shouldShowPagination && controller.canGoToNextPageWithPage(users, currentPage);
                        return IconButton(
                          icon: const Icon(Icons.chevron_right),
                          onPressed: canGoNext

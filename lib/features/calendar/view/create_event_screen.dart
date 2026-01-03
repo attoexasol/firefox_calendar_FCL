@@ -216,37 +216,42 @@ class CreateEventScreen extends GetView<CreateEventController> {
   //──────────────────────────────── BUTTONS ────────────────────────────────
   Widget _buildButtons(bool isDark) {
     return Obx(
-      () => Row(
-        children: [
-          Expanded(
-            child: OutlinedButton(
-              onPressed: controller.isLoading.value
-                  ? null
-                  : () {
-                      controller.resetForm();
-                      Get.back();
-                    },
-              child: const Text('Cancel'),
+      () {
+        // Extract Rx values once at the start
+        final isLoading = controller.isLoading.value;
+        final isEditMode = controller.isEditMode.value;
+        
+        return Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                        controller.resetForm();
+                        Get.back();
+                      },
+                child: const Text('Cancel'),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: ElevatedButton(
-              onPressed:
-                  controller.isLoading.value ? null : controller.handleSubmit,
-              child: controller.isLoading.value
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Text(controller.isEditMode.value
-                      ? 'Save Changes'
-                      : 'Create Event'),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: isLoading ? null : controller.handleSubmit,
+                child: isLoading
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(isEditMode
+                        ? 'Save Changes'
+                        : 'Create Event'),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 
