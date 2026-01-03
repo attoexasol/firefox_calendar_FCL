@@ -3,6 +3,7 @@ import 'package:firefox_calendar/core/theme/app_text_styles.dart';
 import 'package:firefox_calendar/features/calendar/controller/calendar_controller.dart';
 import 'package:firefox_calendar/features/calendar/view/sections/calendar_utils.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
 /// Extended helper functions for calendar screen
 class CalendarHelpers {
@@ -168,17 +169,21 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
           ),
           // User Header Row (Time + User Avatars with Pagination)
           // Structure: Fixed Time cell + Paginated user columns + Prev/Next buttons
-          Builder(
-            builder: (context) {
-              // Get all unique users across all dates for pagination
-              final allUniqueUsers = <String>{};
-              for (var users in usersByDate.values) {
-                allUniqueUsers.addAll(users);
-              }
-              final sortedUsers = allUniqueUsers.toList()..sort();
-              
-              // Get paginated users by date
-              final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+          Obx(() {
+            // Get all unique users across all dates for pagination
+            final allUniqueUsers = <String>{};
+            for (var users in usersByDate.values) {
+              allUniqueUsers.addAll(users);
+            }
+            final sortedUsers = allUniqueUsers.toList()..sort();
+            
+            // Get paginated users by date
+            final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+            
+            // Determine if pagination buttons should be shown
+            // Hide in "Myself" view (only 1 user) or when users fit on one page
+            final shouldShowPagination = controller.scopeType.value == 'everyone' && 
+                                        sortedUsers.length > CalendarController.usersPerPage;
               
               return Container(
               height: 80,
@@ -225,49 +230,55 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                   Expanded(
                     child: Row(
                       children: [
-                        // Prev Button - ALWAYS RESERVED SPACE (50px)
-                        Container(
-                          width: 50,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColors.backgroundDark
-                                : AppColors.backgroundLight,
-                            border: Border(
-                              right: BorderSide(
-                                color: isDark
-                                    ? AppColors.borderDark
-                                    : AppColors.borderLight,
-                                width: 1,
-                              ),
-                            ),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.chevron_left),
-                            onPressed: controller.canGoToPreviousPage()
-                                ? () => controller.previousUserPage()
-                                : null, // Disabled when can't go previous
-                            color: controller.canGoToPreviousPage()
-                                ? (isDark
-                                    ? AppColors.foregroundDark
-                                    : AppColors.foregroundLight)
-                                : (isDark
-                                    ? AppColors.mutedForegroundDark
-                                    : AppColors.mutedForegroundLight), // Grayed out when disabled
-                          ),
-                        ),
+                        // Prev Button - Conditionally shown based on scope and pagination
+                        // Hide in "Myself" view or when pagination not needed
+                        shouldShowPagination
+                            ? Container(
+                                width: 50,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppColors.backgroundDark
+                                      : AppColors.backgroundLight,
+                                  border: Border(
+                                    right: BorderSide(
+                                      color: isDark
+                                          ? AppColors.borderDark
+                                          : AppColors.borderLight,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                                child: Obx(() => IconButton(
+                                  icon: const Icon(Icons.chevron_left),
+                                  onPressed: controller.canGoToPreviousPage()
+                                      ? () => controller.previousUserPage()
+                                      : null,
+                                  color: controller.canGoToPreviousPage()
+                                      ? (isDark
+                                          ? AppColors.foregroundDark
+                                          : AppColors.foregroundLight)
+                                      : (isDark
+                                          ? AppColors.mutedForegroundDark
+                                          : AppColors.mutedForegroundLight),
+                                )),
+                              )
+                            : const SizedBox.shrink(),
                         // User Columns for each day (paginated) - Instant replacement, no animation
+                        // Wrapped in Obx to react to pagination changes
                         Expanded(
-                          child: Builder(
-                            builder: (context) {
-                              // Direct instant replacement - no animation
-                              return Row(
-                                children: [
-                                // User Columns for each day (paginated)
-                                ...weekDates.expand((date) {
-                                  final dateStr = CalendarUtils.formatDateToIso(date);
-                                  final dayUsers = paginatedUsersByDate[dateStr] ?? [];
-                                  return dayUsers.map((user) {
+                          child: Obx(() {
+                            // Re-get paginated users to react to currentUserPage changes
+                            final reactivePaginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+                            
+                            // Direct instant replacement - no animation
+                            return Row(
+                              children: [
+                              // User Columns for each day (paginated)
+                              ...weekDates.expand((date) {
+                                final dateStr = CalendarUtils.formatDateToIso(date);
+                                final dayUsers = reactivePaginatedUsersByDate[dateStr] ?? [];
+                                return dayUsers.map((user) {
                                     return Flexible(
                                       child: Container(
                                         width: 150,
@@ -335,48 +346,49 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                               }),
                               ],
                             );
-                            },
-                          ),
+                          }),
                         ),
-                        // Next Button - ALWAYS RESERVED SPACE (50px)
-                        Container(
-                          width: 50,
-                          height: 80,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColors.backgroundDark
-                                : AppColors.backgroundLight,
-                            border: Border(
-                              left: BorderSide(
-                                color: isDark
-                                    ? AppColors.borderDark
-                                    : AppColors.borderLight,
-                                width: 1,
-                              ),
-                            ),
-                          ),
-                          child: IconButton(
-                            icon: const Icon(Icons.chevron_right),
-                            onPressed: controller.canGoToNextPage(sortedUsers)
-                                ? () => controller.nextUserPage(sortedUsers)
-                                : null, // Disabled when can't go next
-                            color: controller.canGoToNextPage(sortedUsers)
-                                ? (isDark
-                                    ? AppColors.foregroundDark
-                                    : AppColors.foregroundLight)
-                                : (isDark
-                                    ? AppColors.mutedForegroundDark
-                                    : AppColors.mutedForegroundLight), // Grayed out when disabled
-                          ),
-                        ),
+                        // Next Button - Conditionally shown based on scope and pagination
+                        // Hide in "Myself" view or when pagination not needed
+                        shouldShowPagination
+                            ? Container(
+                                width: 50,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppColors.backgroundDark
+                                      : AppColors.backgroundLight,
+                                  border: Border(
+                                    left: BorderSide(
+                                      color: isDark
+                                          ? AppColors.borderDark
+                                          : AppColors.borderLight,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                                child: Obx(() => IconButton(
+                                  icon: const Icon(Icons.chevron_right),
+                                  onPressed: controller.canGoToNextPage(sortedUsers)
+                                      ? () => controller.nextUserPage(sortedUsers)
+                                      : null,
+                                  color: controller.canGoToNextPage(sortedUsers)
+                                      ? (isDark
+                                          ? AppColors.foregroundDark
+                                          : AppColors.foregroundLight)
+                                      : (isDark
+                                          ? AppColors.mutedForegroundDark
+                                          : AppColors.mutedForegroundLight),
+                                )),
+                              )
+                            : const SizedBox.shrink(),
                       ],
                     ),
                   ),
                 ],
               ),
             );
-            },
-          ),
+          }),
         ],
       ),
     );

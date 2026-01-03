@@ -16,7 +16,6 @@ class CalendarWeekView extends GetView<CalendarController> {
   Widget build(BuildContext context) {
     return Obx(() {
       final weekDates = controller.getCurrentWeekDates();
-      final meetingsByDate = controller.getMeetingsByDate();
       
       // Create a set of week date strings for fast lookup
       final weekDateStrings = weekDates.map((date) {
@@ -29,53 +28,64 @@ class CalendarWeekView extends GetView<CalendarController> {
       final weekStart = weekDates.first;
       final weekEnd = weekDates.last;
       
-      // Get all meetings that match the week date strings OR fall within the week range
-      // This handles both exact date matches and edge cases where API returns slightly different ranges
+      // CRITICAL: Filter meetings to ONLY include those within the week range
+      // This prevents date leakage from adjacent weeks/months
       final weekMeetings = <Meeting>[];
+      final weekStartOnly = DateTime(weekStart.year, weekStart.month, weekStart.day);
+      final weekEndOnly = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
+      
+      print('🔍 [CalendarWeekView] Filtering meetings for week range: ${CalendarUtils.formatDateToIso(weekStart)} to ${CalendarUtils.formatDateToIso(weekEnd)}');
+      print('   Week date strings: $weekDateStrings');
       
       for (var meeting in controller.meetings) {
-        // First check: exact date string match (fast path)
+        // Skip if date is empty or invalid
+        if (meeting.date.isEmpty) continue;
+        
+        // Fast path: exact date string match (only for dates in week)
         if (weekDateStrings.contains(meeting.date)) {
           weekMeetings.add(meeting);
           continue;
         }
         
-        // Second check: parse date and check if within week range
+        // Fallback: parse date and check if within week range
         try {
           final meetingDateParts = meeting.date.split('-');
-          if (meetingDateParts.length == 3) {
-            final meetingDate = DateTime(
-              int.parse(meetingDateParts[0]),
-              int.parse(meetingDateParts[1]),
-              int.parse(meetingDateParts[2]),
-            );
-            
-            // Check if meeting date is within week range (inclusive)
-            // Compare dates only (ignore time)
-            final meetingDateOnly = DateTime(meetingDate.year, meetingDate.month, meetingDate.day);
-            final weekStartOnly = DateTime(weekStart.year, weekStart.month, weekStart.day);
-            final weekEndOnly = DateTime(weekEnd.year, weekEnd.month, weekEnd.day);
-            
-            // Meeting is included if its date is >= weekStart and <= weekEnd
-            final isInRange = !meetingDateOnly.isBefore(weekStartOnly) && !meetingDateOnly.isAfter(weekEndOnly);
-            
-            if (isInRange) {
-              weekMeetings.add(meeting);
-            }
+          if (meetingDateParts.length != 3) continue;
+          
+          final meetingYear = int.tryParse(meetingDateParts[0]);
+          final meetingMonth = int.tryParse(meetingDateParts[1]);
+          final meetingDay = int.tryParse(meetingDateParts[2]);
+          
+          if (meetingYear == null || meetingMonth == null || meetingDay == null) continue;
+          
+          final meetingDateOnly = DateTime(meetingYear, meetingMonth, meetingDay);
+          
+          // Check if meeting date is within week range (inclusive boundaries)
+          final isInRange = (meetingDateOnly.isAtSameMomentAs(weekStartOnly) ||
+                            meetingDateOnly.isAtSameMomentAs(weekEndOnly) ||
+                            (meetingDateOnly.isAfter(weekStartOnly) && meetingDateOnly.isBefore(weekEndOnly)));
+          
+          if (isInRange) {
+            weekMeetings.add(meeting);
+          } else {
+            print('   ⚠️ Excluded: ${meeting.title} on ${meeting.date} (outside week range)');
           }
         } catch (e) {
           // If parsing fails, skip this meeting
+          print('   ❌ Error parsing meeting date: ${meeting.date} - $e');
         }
       }
       
-      // Group meetings by date for display
-      // Use all meetings from controller (includes work hours) grouped by date
+      print('✅ [CalendarWeekView] Filtered ${weekMeetings.length} meetings from ${controller.meetings.length} total');
+      
+      // Group filtered week meetings by date for display
+      // CRITICAL: Use weekMeetings (week-filtered) instead of all controller.meetings
+      // This ensures only meetings within the week range are displayed
       final updatedMeetingsByDate = <String, List<Meeting>>{};
       for (var date in weekDates) {
         final dateStr = CalendarUtils.formatDateToIso(date);
-        // Get all meetings for this date from controller (includes work hours)
-        final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
-        updatedMeetingsByDate[dateStr] = allDayMeetings;
+        // Only include meetings that are in our filtered weekMeetings list
+        updatedMeetingsByDate[dateStr] = weekMeetings.where((m) => m.date == dateStr).toList();
       }
       
       final filteredMeetings = controller.filterMeetings(weekMeetings);
@@ -93,8 +103,9 @@ class CalendarWeekView extends GetView<CalendarController> {
       
       for (var date in datesToProcess) {
         final dateStr = CalendarUtils.formatDateToIso(date);
-        // Get all meetings for this date from controller (includes work hours)
-        final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
+        // Use filtered weekMeetings instead of all controller.meetings
+        // This ensures we only show users for events within the week range
+        final allDayMeetings = weekMeetings.where((m) => m.date == dateStr).toList();
         final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
         
         // Get unique users for this specific date
@@ -169,6 +180,19 @@ class CalendarWeekView extends GetView<CalendarController> {
     return Obx(() {
       // Get paginated users by date
       final paginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+      
+      // Calculate if pagination should be shown
+      // Get all unique users across all dates for pagination check
+      final allUniqueUsers = <String>{};
+      for (var users in usersByDate.values) {
+        allUniqueUsers.addAll(users);
+      }
+      final sortedUsers = allUniqueUsers.toList()..sort();
+      
+      // Determine if pagination buttons should be shown
+      // Hide in "Myself" view (only 1 user) or when users fit on one page
+      final shouldShowPagination = controller.scopeType.value == 'everyone' && 
+                                  sortedUsers.length > CalendarController.usersPerPage;
 
       return SingleChildScrollView(
         scrollDirection: Axis.vertical,
@@ -222,38 +246,58 @@ class CalendarWeekView extends GetView<CalendarController> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Prev Button Space - ALWAYS RESERVED (50px) to match header
-                        Container(
-                          width: 50,
-                          constraints: const BoxConstraints(minHeight: 80),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColors.backgroundDark
-                                : AppColors.backgroundLight,
-                            border: Border(
-                              right: BorderSide(
-                                color: isDark
-                                    ? AppColors.borderDark
-                                    : AppColors.borderLight,
-                                width: 1,
-                              ),
-                            ),
-                          ),
-                        ),
+                        // Prev Button - Conditionally shown based on scope and pagination
+                        // Hide in "Myself" view or when pagination not needed
+                        shouldShowPagination
+                            ? Container(
+                                width: 50,
+                                constraints: const BoxConstraints(minHeight: 80),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppColors.backgroundDark
+                                      : AppColors.backgroundLight,
+                                  border: Border(
+                                    right: BorderSide(
+                                      color: isDark
+                                          ? AppColors.borderDark
+                                          : AppColors.borderLight,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                                child: Obx(() => IconButton(
+                                  icon: const Icon(Icons.chevron_left),
+                                  onPressed: controller.canGoToPreviousPage()
+                                      ? () => controller.previousUserPage()
+                                      : null,
+                                  color: controller.canGoToPreviousPage()
+                                      ? (isDark
+                                          ? AppColors.foregroundDark
+                                          : AppColors.foregroundLight)
+                                      : (isDark
+                                          ? AppColors.mutedForegroundDark
+                                          : AppColors.mutedForegroundLight),
+                                )),
+                              )
+                            : const SizedBox.shrink(),
                         // User Columns - Instant replacement, no animation
+                        // Wrapped in Obx to react to pagination changes
                         Expanded(
                           child: Obx(() {
+                            // Re-get paginated users to react to currentUserPage changes
+                            final reactivePaginatedUsersByDate = controller.getPaginatedUsersByDate(usersByDate);
+                            
                             // Direct instant replacement - no animation
                             return Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 // User Columns for each day (paginated)
                                 ...weekDates.expand((date) {
-                          final dateStr = CalendarUtils.formatDateToIso(date);
-                          // Get all meetings for this date (includes work hours)
-                          final allDayMeetings = controller.meetings.where((m) => m.date == dateStr).toList();
-                          final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
-                          final dayUsers = paginatedUsersByDate[dateStr] ?? [];
+                                  final dateStr = CalendarUtils.formatDateToIso(date);
+                                  // Use meetingsByDate which contains only filtered week meetings
+                                  final allDayMeetings = meetingsByDate[dateStr] ?? [];
+                                  final filteredDayMeetings = controller.filterMeetings(allDayMeetings);
+                                  final dayUsers = reactivePaginatedUsersByDate[dateStr] ?? [];
                           
                           if (dayUsers.isEmpty) {
                             return <Widget>[];
@@ -368,24 +412,40 @@ class CalendarWeekView extends GetView<CalendarController> {
                             );
                           }),
                         ),
-                        // Next Button Space - ALWAYS RESERVED (50px) to match header
-                        Container(
-                          width: 50,
-                          constraints: const BoxConstraints(minHeight: 80),
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? AppColors.backgroundDark
-                                : AppColors.backgroundLight,
-                            border: Border(
-                              left: BorderSide(
-                                color: isDark
-                                    ? AppColors.borderDark
-                                    : AppColors.borderLight,
-                                width: 1,
-                              ),
-                            ),
-                          ),
-                        ),
+                        // Next Button - Conditionally shown based on scope and pagination
+                        // Hide in "Myself" view or when pagination not needed
+                        shouldShowPagination
+                            ? Container(
+                                width: 50,
+                                constraints: const BoxConstraints(minHeight: 80),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? AppColors.backgroundDark
+                                      : AppColors.backgroundLight,
+                                  border: Border(
+                                    left: BorderSide(
+                                      color: isDark
+                                          ? AppColors.borderDark
+                                          : AppColors.borderLight,
+                                      width: 1,
+                                    ),
+                                  ),
+                                ),
+                                child: Obx(() => IconButton(
+                                  icon: const Icon(Icons.chevron_right),
+                                  onPressed: controller.canGoToNextPage(sortedUsers)
+                                      ? () => controller.nextUserPage(sortedUsers)
+                                      : null,
+                                  color: controller.canGoToNextPage(sortedUsers)
+                                      ? (isDark
+                                          ? AppColors.foregroundDark
+                                          : AppColors.foregroundLight)
+                                      : (isDark
+                                          ? AppColors.mutedForegroundDark
+                                          : AppColors.mutedForegroundLight),
+                                )),
+                              )
+                            : const SizedBox.shrink(),
                       ],
                     ),
                   ),
