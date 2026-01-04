@@ -131,19 +131,11 @@ class CalendarWeekView extends GetView<CalendarController> {
         
         // Get unique users for this specific date
         if (scopeType == 'myself') {
-          // In "Myself" view, only show current user if they have meetings or work hours
+          // In "Myself" view, ALWAYS show current user column, even if they have no events
+          // This ensures the weekly grid structure is identical to "Everyone" view
           if (userEmail.isNotEmpty) {
-            // Check if user has any meetings or work hours on this date
-            final hasMeetings = filteredDayMeetings.any((m) => 
-              (m.creator == userEmail || m.attendees.contains(userEmail)) &&
-              (userId == 0 || m.userId == null || m.userId == userId)
-            );
-            final hasWorkHours = controller.getWorkHoursForUser(userEmail, dateStr, weekMeetings, userId).isNotEmpty;
-            if (hasMeetings || hasWorkHours) {
-              usersByDate[dateStr] = [userEmail];
-            } else {
-              usersByDate[dateStr] = [];
-            }
+            // Always include current user - event data will populate if available
+            usersByDate[dateStr] = [userEmail];
           } else {
             usersByDate[dateStr] = [];
           }
@@ -178,40 +170,9 @@ class CalendarWeekView extends GetView<CalendarController> {
         }
       }
       
-      // CRITICAL: Early empty state check for "Myself + Week" with no data
-      // This prevents GetX errors and layout issues when building empty week view
-      // Check if scope is "myself" and there are no users/meetings
-      // This check happens BEFORE any pagination calculations or complex layout building
-      if (scopeType == 'myself') {
-        // Check if there are any users across all dates
-        final hasAnyUsers = usersByDate.values.any((users) => users.isNotEmpty);
-        // Check if there are any filtered meetings
-        final hasAnyMeetings = filteredMeetings.isNotEmpty;
-        // Check if there are any week meetings (before scope filtering)
-        final hasAnyWeekMeetings = weekMeetings.isNotEmpty;
-        
-        // If no users, no filtered meetings, and no week meetings, return empty state immediately
-        // This prevents building time columns, slivers, pagination arrows, or layout calculations
-        if (!hasAnyUsers && !hasAnyMeetings && !hasAnyWeekMeetings) {
-          // Return simple empty state immediately - no layout calculations, no slivers, no pagination
-          // All Rx values have been extracted above, so this is safe
-          return SizedBox.expand(
-            child: Container(
-              padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  'No events scheduled for this week',
-                  style: AppTextStyles.bodyMedium.copyWith(
-                    color: isDark
-                        ? AppColors.mutedForegroundDark
-                        : AppColors.mutedForegroundLight,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-      }
+      // NOTE: Removed early empty state check for "Myself + Week"
+      // The weekly grid should always be built with user columns, even when empty
+      // Empty state messages will be shown inside the grid area, not as a replacement
       
       // SCROLLABLE: Week Schedule with User Columns (ONLY time slots, NO headers)
       // The parent SliverFillRemaining handles the scrolling, so we just return the scrollable content

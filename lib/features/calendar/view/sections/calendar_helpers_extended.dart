@@ -68,20 +68,11 @@ class CalendarHelpers {
       // Get unique users for this specific date
       // This MUST match CalendarWeekView.build() exactly
       if (scopeType == 'myself') {
-        // In "Myself" view, only show current user if they have meetings or work hours
+        // In "Myself" view, ALWAYS show current user column, even if they have no events
+        // This ensures the weekly grid structure is identical to "Everyone" view
         if (userEmail.isNotEmpty) {
-          // Check if user has any meetings or work hours on this date
-          final hasMeetings = filteredDayMeetings.any((m) => 
-            (m.creator == userEmail || m.attendees.contains(userEmail)) &&
-            (userId == 0 || m.userId == null || m.userId == userId)
-          );
-          // Use passed userId and meetingsList (already extracted from Obx context)
-          final hasWorkHours = controller.getWorkHoursForUser(userEmail, dateStr, meetingsList, userId).isNotEmpty;
-          if (hasMeetings || hasWorkHours) {
-            usersByDate[dateStr] = [userEmail];
-          } else {
-            usersByDate[dateStr] = [];
-          }
+          // Always include current user - event data will populate if available
+          usersByDate[dateStr] = [userEmail];
         } else {
           usersByDate[dateStr] = [];
         }
