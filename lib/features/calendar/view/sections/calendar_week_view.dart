@@ -227,37 +227,25 @@ class CalendarWeekView extends GetView<CalendarController> {
       // Check if there are any users at all (empty state check)
       final hasAnyUsers = sortedUsers.isNotEmpty;
       
-      // If no users, show empty state with proper height for SliverFillRemaining
-      if (!hasAnyUsers) {
-        return SizedBox.expand(
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            child: Center(
-              child: Text(
-                'No events scheduled for this week',
-                style: AppTextStyles.bodyMedium.copyWith(
-                  color: isDark
-                      ? AppColors.mutedForegroundDark
-                      : AppColors.mutedForegroundLight,
-                ),
-              ),
-            ),
-          ),
-        );
-      }
+      // Check if there are any events at all (for empty state message)
+      final hasAnyEvents = meetingsByDate.values.any((meetings) => meetings.isNotEmpty);
       
       // Determine if pagination buttons should be shown
+      // Only show in Week view, "Everyone" scope, and when users exceed page size
       // Hide in "Myself" view (only 1 user) or when users fit on one page
-      final shouldShowPagination = scopeType == 'everyone' && 
+      final shouldShowPagination = viewType == 'week' &&
+                                  scopeType == 'everyone' && 
                                   sortedUsers.length > CalendarController.usersPerPage;
 
       return SingleChildScrollView(
         scrollDirection: Axis.vertical,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: List.generate(numSlots, (index) {
-            final hour = timeRange.startHour + index;
-            final timeLabel = CalendarUtils.formatHour(hour);
+        child: Stack(
+          children: [
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(numSlots, (index) {
+                final hour = timeRange.startHour + index;
+                final timeLabel = CalendarUtils.formatHour(hour);
 
             return Container(
               constraints: const BoxConstraints(minHeight: 80),
@@ -326,27 +314,28 @@ class CalendarWeekView extends GetView<CalendarController> {
                             : const SizedBox.shrink(),
                         // User Columns - Use paginatedUsersByDate from parent Obx (no nested Obx)
                         Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // User Columns for each day (paginated)
-                              ...weekDates.expand((date) {
-                                final dateStr = CalendarUtils.formatDateToIso(date);
-                                // Use meetingsByDate which contains only filtered week meetings
-                                final allDayMeetings = meetingsByDate[dateStr] ?? [];
-                                final filteredDayMeetings = controller.filterMeetings(
-                                  allDayMeetings,
-                                  scopeTypeParam: scopeType,
-                                  viewTypeParam: viewType,
-                                  selectedWeekDateParam: selectedWeekDate,
-                                  userIdParam: userId,
-                                  userEmailParam: userEmail,
-                                );
-                                final dayUsers = paginatedUsersByDate[dateStr] ?? [];
-                          
-                                if (dayUsers.isEmpty) {
-                                  return <Widget>[];
-                                }
+                          child: hasAnyUsers
+                              ? Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    // User Columns for each day (paginated)
+                                    ...weekDates.expand((date) {
+                                      final dateStr = CalendarUtils.formatDateToIso(date);
+                                      // Use meetingsByDate which contains only filtered week meetings
+                                      final allDayMeetings = meetingsByDate[dateStr] ?? [];
+                                      final filteredDayMeetings = controller.filterMeetings(
+                                        allDayMeetings,
+                                        scopeTypeParam: scopeType,
+                                        viewTypeParam: viewType,
+                                        selectedWeekDateParam: selectedWeekDate,
+                                        userIdParam: userId,
+                                        userEmailParam: userEmail,
+                                      );
+                                      final dayUsers = paginatedUsersByDate[dateStr] ?? [];
+                            
+                                      if (dayUsers.isEmpty) {
+                                        return <Widget>[];
+                                      }
                           
                                 return dayUsers.map((user) {
                                   // Find meetings for this user on this date that overlap with this hour slot
@@ -453,8 +442,9 @@ class CalendarWeekView extends GetView<CalendarController> {
                                   );
                                 });
                               }),
-                            ],
-                          ),
+                                  ],
+                                )
+                              : const SizedBox.shrink(), // Empty space when no users
                         ),
                         // Next Button Space - Conditionally shown to match header
                         shouldShowPagination
@@ -483,6 +473,25 @@ class CalendarWeekView extends GetView<CalendarController> {
               ),
             );
           }),
+            ),
+            // Empty state message overlay (shown when no events exist)
+            // Always show if no events, regardless of whether users exist
+            if (!hasAnyEvents)
+              Positioned.fill(
+                child: Container(
+                  alignment: Alignment.center,
+                  padding: const EdgeInsets.all(24),
+                  child: Text(
+                    'No events scheduled for this week',
+                    style: AppTextStyles.bodyMedium.copyWith(
+                      color: isDark
+                          ? AppColors.mutedForegroundDark
+                          : AppColors.mutedForegroundLight,
+                    ),
+                  ),
+                ),
+              ),
+          ],
         ),
       );
     });

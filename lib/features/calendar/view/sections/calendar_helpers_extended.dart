@@ -148,17 +148,23 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    return Container(
-      color: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Days/Dates Row - FIXED (does not scroll horizontally)
-          // This row stays fixed while User Header Row and Time Grid scroll
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            constraints: const BoxConstraints(minHeight: 60),
+    // Calculate available height based on shrinkOffset
+    final availableHeight = maxExtent - shrinkOffset;
+    
+    return SizedBox(
+      height: availableHeight.clamp(minExtent, maxExtent),
+      child: ClipRect(
+        child: Container(
+          color: isDark ? AppColors.backgroundDark : AppColors.backgroundLight,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Days/Dates Row - FIXED (does not scroll horizontally)
+            // This row stays fixed while User Header Row and Time Grid scroll
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              constraints: const BoxConstraints(minHeight: 60),
             decoration: BoxDecoration(
               color: isDark
                   ? AppColors.backgroundDark
@@ -190,6 +196,7 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
           Obx(() {
             // Extract Rx values once at the start
             final scopeType = controller.scopeType.value;
+            final viewType = controller.viewType.value; // Extract viewType for week-only check
             final currentPage = controller.currentUserPage.value; // Extract page value in Obx
             
             // Get all unique users across all dates for pagination
@@ -203,8 +210,10 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
             final paginatedUsersByDate = controller.getPaginatedUsersByDateWithPage(usersByDate, currentPage);
             
             // Determine if pagination buttons should be shown
+            // Only show in Week view, "Everyone" scope, and when users exceed page size
             // Hide in "Myself" view (only 1 user) or when users fit on one page
-            final shouldShowPagination = scopeType == 'everyone' && 
+            final shouldShowPagination = viewType == 'week' &&
+                                        scopeType == 'everyone' && 
                                         sortedUsers.length > CalendarController.usersPerPage;
               
               return Container(
@@ -423,6 +432,8 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
           }),
         ],
       ),
+        ),
+      ),
     );
   }
 
@@ -532,6 +543,9 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    // Calculate available height based on shrinkOffset
+    final availableHeight = maxExtent - shrinkOffset;
+    
     // Wrap in Obx to react to currentUserPage changes
     return Obx(() {
       // Extract page value in Obx before calling method
@@ -545,8 +559,11 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
       final shouldShowPagination = scopeType == 'everyone' && 
                                   users.length > CalendarController.usersPerPage;
       
-      return Container(
-        height: 80,
+      return SizedBox(
+        height: availableHeight.clamp(minExtent, maxExtent),
+        child: ClipRect(
+          child: Container(
+            height: 80,
         decoration: BoxDecoration(
           color: isDark
               ? AppColors.backgroundDark
@@ -752,6 +769,8 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                ),
              ),
           ],
+        ),
+          ),
         ),
       );
     });

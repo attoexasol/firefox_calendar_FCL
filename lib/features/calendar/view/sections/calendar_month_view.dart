@@ -12,29 +12,32 @@ class CalendarMonthView extends GetView<CalendarController> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Obx(() {
-        final monthDates = controller.getMonthDates();
-        final currentMeetings = controller.meetings;
-        final meetingsByDate = controller.getMeetingsByDate(currentMeetings);
-        final today = DateTime.now();
-        final currentScopeType = controller.scopeType.value;
-        final currentViewType = controller.viewType.value;
-        final currentSelectedWeekDate = controller.selectedWeekDate.value;
-        final currentUserId = controller.userId.value;
-        final currentUserEmail = controller.userEmail.value;
+    return Obx(() {
+      final monthDates = controller.getMonthDates();
+      final currentMeetings = controller.meetings;
+      final meetingsByDate = controller.getMeetingsByDate(currentMeetings);
+      final today = DateTime.now();
+      final currentScopeType = controller.scopeType.value;
+      final currentViewType = controller.viewType.value;
+      final currentSelectedWeekDate = controller.selectedWeekDate.value;
+      final currentUserId = controller.userId.value;
+      final currentUserEmail = controller.userEmail.value;
 
-        return GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 7,
-            childAspectRatio: 1.0,
-            crossAxisSpacing: 4,
-            mainAxisSpacing: 4,
-          ),
-          itemCount: monthDates.length + 7, // +7 for weekday headers
+      // Wrap in SingleChildScrollView to prevent overflow
+      // The GridView with shrinkWrap will calculate its natural height
+      return SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 7,
+              childAspectRatio: 1.0,
+              crossAxisSpacing: 4,
+              mainAxisSpacing: 4,
+            ),
+            itemCount: monthDates.length + 7, // +7 for weekday headers
           itemBuilder: (context, index) {
             // Weekday headers
             if (index < 7) {
@@ -146,9 +149,10 @@ class CalendarMonthView extends GetView<CalendarController> {
               ),
             );
           },
-        );
-      }),
-    );
+          ),
+        ),
+      );
+    });
   }
 }
 
