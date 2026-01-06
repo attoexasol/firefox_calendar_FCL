@@ -130,33 +130,24 @@ class CalendarWeekView extends GetView<CalendarController> {
         );
         
         // Get unique users for this specific date
-        if (scopeType == 'myself') {
-          // In "Myself" view, ALWAYS show current user column, even if they have no events
-          // This ensures the weekly grid structure is identical to "Everyone" view
-          if (userEmail.isNotEmpty) {
-            // Always include current user - event data will populate if available
-            usersByDate[dateStr] = [userEmail];
-          } else {
-            usersByDate[dateStr] = [];
+        // Both "Everyone" and "Myself" views use the same logic to show all users
+        // The difference is that filteredDayMeetings already contains only the current user's events in "Myself" view
+        // filteredDayMeetings already includes work hours filtered by scope and date
+        final users = CalendarUtils.getUsersFromMeetings(filteredDayMeetings);
+        // Also add users from work hours (work hours are already in filteredDayMeetings)
+        final allUsers = <String>{...users};
+        for (var meeting in filteredDayMeetings) {
+          // Include work hour creators (already filtered by scope and date)
+          if (meeting.category == 'work_hour' && meeting.creator.isNotEmpty) {
+            allUsers.add(meeting.creator);
+          } else if (meeting.creator.isNotEmpty) {
+            // Also include regular event creators
+            allUsers.add(meeting.creator);
           }
-        } else {
-          // In "Everyone" view, show all users who have events OR work hours on this date
-          // filteredDayMeetings already includes work hours filtered by scope and date
-          final users = CalendarUtils.getUsersFromMeetings(filteredDayMeetings);
-          // Also add users from work hours (work hours are already in filteredDayMeetings)
-          final allUsers = <String>{...users};
-          for (var meeting in filteredDayMeetings) {
-            // Include work hour creators (already filtered by scope and date)
-            if (meeting.category == 'work_hour' && meeting.creator.isNotEmpty) {
-              allUsers.add(meeting.creator);
-            } else if (meeting.creator.isNotEmpty) {
-              // Also include regular event creators
-              allUsers.add(meeting.creator);
-            }
-          }
-          // Only show users who have data (events or work hours) on this date
-          usersByDate[dateStr] = allUsers.toList()..sort();
         }
+        // Show all users who have data (events or work hours) on this date
+        // In "Myself" view, this will only include users who have the current user's events
+        usersByDate[dateStr] = allUsers.toList()..sort();
       }
       
       // If selectedWeekDate is set, only show users for that date (set others to empty)
@@ -231,10 +222,9 @@ class CalendarWeekView extends GetView<CalendarController> {
       final hasAnyEvents = meetingsByDate.values.any((meetings) => meetings.isNotEmpty);
       
       // Determine if pagination buttons should be shown
-      // Only show in Week view, "Everyone" scope, and when users exceed page size
-      // Hide in "Myself" view (only 1 user) or when users fit on one page
-      final shouldShowPagination = viewType == 'week' &&
-                                  scopeType == 'everyone' && 
+      // Show in Week view when users exceed page size (for both "Everyone" and "Myself" views)
+      // Both views should have the same pagination behavior
+      final shouldShowPagination = viewType == 'week' && 
                                   sortedUsers.length > CalendarController.usersPerPage;
 
       return SingleChildScrollView(
