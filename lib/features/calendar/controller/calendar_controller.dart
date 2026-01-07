@@ -1,5 +1,6 @@
 
 import 'package:firefox_calendar/features/calendar/controller/create_event_controller.dart';
+import 'package:firefox_calendar/features/calendar/view/user_work_hours_modal.dart';
 import 'package:firefox_calendar/routes/app_routes.dart';
 import 'package:firefox_calendar/services/auth_service.dart';
 import 'package:flutter/material.dart';
@@ -56,6 +57,11 @@ class CalendarController extends GetxController {
   // Work hours for calendar overlay (approved only)
   final RxList<WorkHour> workHours = <WorkHour>[].obs;
   final RxBool isLoadingWorkHours = false.obs;
+
+  // User work hours details modal state
+  final RxBool isLoadingUserWorkHours = false.obs;
+  final RxString userWorkHoursError = ''.obs;
+  final RxList<Map<String, dynamic>> userWorkHoursData = <Map<String, dynamic>>[].obs;
 
   // Scroll position tracking for sticky header behavior
   final RxDouble scrollOffset = 0.0.obs;
@@ -1076,7 +1082,7 @@ class CalendarController extends GetxController {
     // Removed calls to these methods from here to prevent GetX warnings
     final currentViewType = viewType.value;
     if (currentViewType == 'day') {
-      print('   Range: Day view - showing only ${newDateStr}');
+      print('   Range: Day view - showing only $newDateStr');
     } else if (currentViewType == 'week') {
       // Don't call getCurrentWeekDates() here - it accesses Rx values
       // The UI will call it from within Obx
@@ -1612,6 +1618,130 @@ class CalendarController extends GetxController {
   /// Called when view type, scope, or date changes
   void resetUserPage() {
     currentUserPage.value = 0;
+  }
+
+  /// Fetch work hours for a specific user based on current view type
+  /// Used for user work hours details modal
+  Future<void> fetchUserWorkHours({
+    required String userEmail,
+    required String viewType,
+    required DateTime selectedDate,
+  }) async {
+    try {
+      isLoadingUserWorkHours.value = true;
+      userWorkHoursError.value = '';
+
+      // Determine range based on view type
+      String range;
+      if (viewType == 'day') {
+        range = 'day';
+      } else if (viewType == 'week') {
+        range = 'week';
+      } else if (viewType == 'month') {
+        range = 'month';
+      } else {
+        range = 'week';
+      }
+
+      // Format current date as YYYY-MM-DD
+      final currentDateStr = _formatDateString(selectedDate);
+
+      print('═══════════════════════════════════════════════════════════');
+      print('🔵 [CalendarController] Fetching user work hours...');
+      print('   User: $userEmail');
+      print('   Range: $range');
+      print('   Current Date: $currentDateStr');
+      print('═══════════════════════════════════════════════════════════');
+
+      // Fetch work hours from API
+      final result = await _authService.getUserHours(
+        range: range,
+        currentDate: currentDateStr,
+      );
+
+      isLoadingUserWorkHours.value = false;
+
+      if (result['success'] == true && result['data'] != null) {
+        final data = result['data'];
+        List<Map<String, dynamic>> allHours = [];
+
+        if (data is List) {
+          allHours = List<Map<String, dynamic>>.from(data);
+        } else if (data is Map) {
+          allHours = [Map<String, dynamic>.from(data)];
+        }
+
+        // Filter to only the clicked user's work hours (not the logged-in user)
+        // The API returns a flat list of work hours entries
+        // Match by email pattern (construct from first_name if needed)
+        // This matches the logic used in calendar work hours display
+        final userHours = allHours.where((entry) {
+          // Try to match by email pattern (construct from first_name if needed)
+          // This matches the logic used in calendar work hours
+          if (entry['user'] != null && entry['user'] is Map) {
+            final userData = entry['user'] as Map<String, dynamic>;
+            final entryEmail = userData['email']?.toString() ?? '';
+            
+            // Direct email match
+            if (entryEmail.isNotEmpty && entryEmail == userEmail) {
+              return true;
+            }
+            
+            // Try to construct email from first_name if email not available
+            if (entryEmail.isEmpty && userData['first_name'] != null) {
+              final firstName = userData['first_name'].toString().toLowerCase().replaceAll(' ', '');
+              final constructedEmail = '$firstName@user.com';
+              if (constructedEmail == userEmail) {
+                return true;
+              }
+            }
+          }
+          
+          // Fallback: check user_id if we can match it (but we only have email)
+          // For now, we rely on email matching above
+          return false;
+        }).toList();
+
+        userWorkHoursData.value = userHours;
+        print('✅ [CalendarController] Fetched ${userHours.length} work hours for $userEmail');
+      } else {
+        userWorkHoursError.value = result['message'] ?? 'Failed to fetch work hours';
+        userWorkHoursData.value = [];
+        print('❌ [CalendarController] Failed to fetch user work hours: ${result['message']}');
+      }
+    } catch (e) {
+      isLoadingUserWorkHours.value = false;
+      userWorkHoursError.value = 'An error occurred: $e';
+      userWorkHoursData.value = [];
+      print('💥 [CalendarController] Error fetching user work hours: $e');
+    }
+  }
+
+  /// Show user work hours modal
+  /// Opens modal with work hours details for the specified user
+  void showUserWorkHoursModal({
+    required String userEmail,
+    required String viewType,
+    required DateTime selectedDate,
+    required bool isDark,
+  }) {
+    // Fetch work hours first
+    fetchUserWorkHours(
+      userEmail: userEmail,
+      viewType: viewType,
+      selectedDate: selectedDate,
+    ).then((_) {
+      // Show modal after data is loaded
+      Get.dialog(
+        UserWorkHoursModal(
+          userEmail: userEmail,
+          viewType: viewType,
+          selectedDate: selectedDate,
+          isDark: isDark,
+        ),
+        barrierDismissible: true,
+      );
+    });
   }
 }
 

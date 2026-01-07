@@ -621,3 +621,4 @@ final overlaps = workHours[0].overlapsWithHour(10); // true if 09:00-17:30 overl
 
 
 
+

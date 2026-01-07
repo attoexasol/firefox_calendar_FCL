@@ -307,67 +307,83 @@ class WeekGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                                 final dayUsers = reactivePaginatedUsersByDate[dateStr] ?? [];
                                 return dayUsers.map((user) {
                                     return Flexible(
-                                      child: Container(
-                                        width: 150,
-                                        constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
-                                        height: 80,
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? AppColors.backgroundDark
-                                          : AppColors.backgroundLight,
-                                      border: Border(
-                                        right: BorderSide(
-                                          color: isDark
-                                              ? AppColors.borderDark
-                                              : AppColors.borderLight,
-                                          width: 1,
+                                      child: InkWell(
+                                        onTap: () {
+                                          // Capture Rx values before callback
+                                          final currentViewType = controller.viewType.value;
+                                          final currentDate = controller.currentDate.value;
+                                          final isDarkMode = isDark;
+                                          
+                                          // Show user work hours modal
+                                          controller.showUserWorkHoursModal(
+                                            userEmail: user,
+                                            viewType: currentViewType,
+                                            selectedDate: currentDate,
+                                            isDark: isDarkMode,
+                                          );
+                                        },
+                                        child: Container(
+                                          width: 150,
+                                          constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+                                          height: 80,
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? AppColors.backgroundDark
+                                            : AppColors.backgroundLight,
+                                        border: Border(
+                                          right: BorderSide(
+                                            color: isDark
+                                                ? AppColors.borderDark
+                                                : AppColors.borderLight,
+                                            width: 1,
+                                          ),
                                         ),
                                       ),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      crossAxisAlignment: CrossAxisAlignment.center,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // User Avatar
-                                        Container(
-                                          width: 40,
-                                          height: 40,
-                                          decoration: BoxDecoration(
-                                            color: CalendarHelpers.getUserColor(user),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          alignment: Alignment.center,
-                                          child: Text(
-                                            CalendarUtils.getUserInitials(user),
-                                            style: AppTextStyles.labelSmall.copyWith(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.w600,
-                                              fontSize: 14,
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          // User Avatar
+                                          Container(
+                                            width: 40,
+                                            height: 40,
+                                            decoration: BoxDecoration(
+                                              color: CalendarHelpers.getUserColor(user),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            alignment: Alignment.center,
+                                            child: Text(
+                                              CalendarUtils.getUserInitials(user),
+                                              style: AppTextStyles.labelSmall.copyWith(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.w600,
+                                                fontSize: 14,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                        const SizedBox(height: 4),
-                                        // User Name
-                                        Flexible(
-                                          child: Text(
-                                            CalendarUtils.getDisplayName(user),
-                                            style: AppTextStyles.labelSmall.copyWith(
-                                              color: isDark
-                                                  ? AppColors.foregroundDark
-                                                  : AppColors.foregroundLight,
-                                              fontWeight: FontWeight.w500,
-                                              fontSize: 10,
+                                          const SizedBox(height: 4),
+                                          // User Name
+                                          Flexible(
+                                            child: Text(
+                                              CalendarUtils.getDisplayName(user),
+                                              style: AppTextStyles.labelSmall.copyWith(
+                                                color: isDark
+                                                    ? AppColors.foregroundDark
+                                                    : AppColors.foregroundLight,
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 10,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              textAlign: TextAlign.center,
                                             ),
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            textAlign: TextAlign.center,
                                           ),
-                                        ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
-                                  ),
+                                      ),
                                   );
                                 });
                               }),
@@ -647,10 +663,25 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                            // Paginated User Columns
                            ...paginatedUsers.map((user) {
                              return Flexible(
-                               child: Container(
-                                 width: 150,
-                                 constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
-                                 height: 80,
+                               child: InkWell(
+                                 onTap: () {
+                                   // Capture Rx values before callback
+                                   final currentViewType = controller.viewType.value;
+                                   final currentDate = controller.currentDate.value;
+                                   final isDarkMode = isDark;
+                                   
+                                   // Show user work hours modal
+                                   controller.showUserWorkHoursModal(
+                                     userEmail: user,
+                                     viewType: currentViewType,
+                                     selectedDate: currentDate,
+                                     isDark: isDarkMode,
+                                   );
+                                 },
+                                 child: Container(
+                                   width: 150,
+                                   constraints: const BoxConstraints(minWidth: 120, maxWidth: 150),
+                                   height: 80,
                                decoration: BoxDecoration(
                                  color: isDark
                                      ? AppColors.backgroundDark
@@ -708,6 +739,7 @@ class DayGridHeaderDelegate extends SliverPersistentHeaderDelegate {
                                  ],
                                ),
                              ),
+                               ),
                            );
                          }),
                          ],

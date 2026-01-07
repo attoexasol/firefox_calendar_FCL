@@ -252,6 +252,7 @@ class WorkHoursDashboardController extends GetxController {
   }
 
   /// Refresh data
+  @override
   Future<void> refresh() async {
     await fetchAllUserHours();
   }
