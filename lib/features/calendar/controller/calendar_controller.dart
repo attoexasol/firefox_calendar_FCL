@@ -1717,21 +1717,137 @@ class CalendarController extends GetxController {
     }
   }
 
+  /// Extract work hours from existing meetings for a specific user and date range
+  /// Uses already-loaded calendar data instead of refetching from API
+  List<Map<String, dynamic>> _extractWorkHoursFromMeetings({
+    required String userEmail,
+    required String viewType,
+    required DateTime selectedDate,
+  }) {
+    // Get all meetings (includes work hours with category='work_hour')
+    final allMeetingsList = List<Meeting>.from(allMeetings);
+    
+    // Filter to work hours only for this user
+    final userWorkHourMeetings = allMeetingsList.where((meeting) {
+      // Only work hours
+      if (meeting.category != 'work_hour') return false;
+      // Match by user email
+      if (meeting.creator != userEmail) return false;
+      return true;
+    }).toList();
+    
+    // Filter by date range based on view type
+    final dateStr = _formatDateString(selectedDate);
+    List<Meeting> filteredMeetings;
+    
+    if (viewType == 'day') {
+      // Only entries for the selected date
+      filteredMeetings = userWorkHourMeetings
+          .where((m) => m.date == dateStr)
+          .toList();
+    } else if (viewType == 'week') {
+      // Entries for the week containing selectedDate (Monday to Sunday)
+      final weekStart = _getStartOfWeek(selectedDate);
+      final weekEnd = weekStart.add(const Duration(days: 6));
+      final weekStartStr = _formatDateString(weekStart);
+      final weekEndStr = _formatDateString(weekEnd);
+      
+      filteredMeetings = userWorkHourMeetings.where((m) {
+        final meetingDateStr = m.date;
+        // Compare date strings (YYYY-MM-DD format)
+        return meetingDateStr.compareTo(weekStartStr) >= 0 &&
+               meetingDateStr.compareTo(weekEndStr) <= 0;
+      }).toList();
+    } else if (viewType == 'month') {
+      // Entries for the month containing selectedDate
+      filteredMeetings = userWorkHourMeetings.where((m) {
+        final meetingDate = DateTime.parse(m.date);
+        return meetingDate.year == selectedDate.year &&
+               meetingDate.month == selectedDate.month;
+      }).toList();
+    } else {
+      filteredMeetings = userWorkHourMeetings;
+    }
+    
+    // Convert Meeting objects to Map format expected by modal
+    return filteredMeetings.map((meeting) {
+      // Extract work hour ID from meeting ID (format: 'work_hour_123')
+      final hourId = meeting.id.replaceFirst('work_hour_', '');
+      
+      // Parse date from meeting.date (YYYY-MM-DD format)
+      final workDate = DateTime.parse(meeting.date);
+      
+      // Calculate hours from start/end times
+      final loginParts = meeting.startTime.split(':');
+      final logoutParts = meeting.endTime.split(':');
+      final loginHour = int.parse(loginParts[0]);
+      final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
+      final logoutHour = int.parse(logoutParts[0]);
+      final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+      
+      final loginMinutes = loginHour * 60 + loginMin;
+      final logoutMinutes = logoutHour * 60 + logoutMin;
+      final totalMinutes = logoutMinutes - loginMinutes;
+      final totalHours = totalMinutes / 60.0;
+      
+      return {
+        'id': hourId,
+        'work_date': workDate.toIso8601String(),
+        'date': meeting.date,
+        'login_time': meeting.startTime,
+        'logout_time': meeting.endTime,
+        'total_hours': totalHours.toStringAsFixed(1),
+        'status': 'approved', // All work hours in calendar are approved
+        'user': {
+          'id': meeting.userId ?? 0,
+          'first_name': _extractFirstNameFromEmail(userEmail),
+        },
+      };
+    }).toList();
+  }
+  
+  /// Extract first name from email (e.g., "samim@user.com" -> "Samim")
+  String _extractFirstNameFromEmail(String email) {
+    final namePart = email.split('@')[0];
+    if (namePart.isEmpty) return 'User';
+    // Capitalize first letter
+    return namePart[0].toUpperCase() + namePart.substring(1);
+  }
+  
+  /// Get start of week (Monday) for a given date
+  DateTime _getStartOfWeek(DateTime date) {
+    final weekday = date.weekday;
+    // Monday is weekday 1, so subtract (weekday - 1) days
+    return DateTime(date.year, date.month, date.day)
+        .subtract(Duration(days: weekday - 1));
+  }
+
   /// Show user work hours modal
   /// Opens modal with work hours details for the specified user
+  /// Uses existing calendar data instead of refetching from API
   void showUserWorkHoursModal({
     required String userEmail,
     required String viewType,
     required DateTime selectedDate,
     required bool isDark,
   }) {
-    // Fetch work hours first
-    fetchUserWorkHours(
-      userEmail: userEmail,
-      viewType: viewType,
-      selectedDate: selectedDate,
-    ).then((_) {
-      // Show modal after data is loaded
+    // Extract work hours from existing meetings (no API call)
+    isLoadingUserWorkHours.value = true;
+    userWorkHoursError.value = '';
+    
+    try {
+      final workHoursData = _extractWorkHoursFromMeetings(
+        userEmail: userEmail,
+        viewType: viewType,
+        selectedDate: selectedDate,
+      );
+      
+      userWorkHoursData.value = workHoursData;
+      isLoadingUserWorkHours.value = false;
+      
+      print('✅ [CalendarController] Extracted ${workHoursData.length} work hours for $userEmail from existing data');
+      
+      // Show modal immediately with extracted data
       Get.dialog(
         UserWorkHoursModal(
           userEmail: userEmail,
@@ -1741,7 +1857,23 @@ class CalendarController extends GetxController {
         ),
         barrierDismissible: true,
       );
-    });
+    } catch (e) {
+      isLoadingUserWorkHours.value = false;
+      userWorkHoursError.value = 'An error occurred: $e';
+      userWorkHoursData.value = [];
+      print('💥 [CalendarController] Error extracting work hours: $e');
+      
+      // Still show modal with error state
+      Get.dialog(
+        UserWorkHoursModal(
+          userEmail: userEmail,
+          viewType: viewType,
+          selectedDate: selectedDate,
+          isDark: isDark,
+        ),
+        barrierDismissible: true,
+      );
+    }
   }
 }
 
