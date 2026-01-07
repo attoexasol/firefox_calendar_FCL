@@ -67,7 +67,7 @@ class UserWorkHoursModal extends GetView<CalendarController> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Work Hours Details',
+                  'Activities & Work Hours',
                   style: AppTextStyles.h4.copyWith(
                     fontWeight: FontWeight.w600,
                     color: isDark
@@ -201,11 +201,11 @@ class UserWorkHoursModal extends GetView<CalendarController> {
     }
   }
 
-  Widget _buildDayView(List<Map<String, dynamic>> workHoursData) {
+  Widget _buildDayView(List<Map<String, dynamic>> activitiesData) {
     final dateStr = CalendarUtils.formatDateToIso(selectedDate);
-    final dayHours = workHoursData
+    final dayActivities = activitiesData
         .where((entry) {
-          // API returns 'work_date' field, not 'date'
+          // Handle both 'work_date' (work hours) and 'date' (events) fields
           final entryDate = entry['work_date']?.toString() ?? entry['date']?.toString() ?? '';
           // Handle both ISO format (2025-12-29T00:00:00.000000Z) and simple format (2025-12-29)
           final datePart = entryDate.contains('T') ? entryDate.split('T')[0] : entryDate;
@@ -214,8 +214,8 @@ class UserWorkHoursModal extends GetView<CalendarController> {
         .toList();
 
     double totalHours = 0.0;
-    for (var entry in dayHours) {
-      // Calculate hours from login/logout times if total_hours is null or 0
+    for (var entry in dayActivities) {
+      // Calculate hours from start/end times
       final hours = _calculateHours(entry);
       totalHours += hours;
     }
@@ -233,10 +233,10 @@ class UserWorkHoursModal extends GetView<CalendarController> {
           ),
           const SizedBox(height: 20),
           // Entries List
-          if (dayHours.isEmpty)
+          if (dayActivities.isEmpty)
             Center(
               child: Text(
-                'No work hours for this day',
+                'No activities for this day',
                 style: AppTextStyles.bodyMedium.copyWith(
                   color: isDark
                       ? AppColors.mutedForegroundDark
@@ -245,30 +245,44 @@ class UserWorkHoursModal extends GetView<CalendarController> {
               ),
             )
           else
-            ...dayHours.map((entry) => _buildHourEntryCard(entry)),
+            ...dayActivities.map((entry) => _buildActivityEntryCard(entry)),
         ],
       ),
     );
   }
 
-  Widget _buildWeekView(List<Map<String, dynamic>> workHoursData) {
+  Widget _buildWeekView(List<Map<String, dynamic>> activitiesData) {
     // Get week dates - extract from controller ONCE in Obx, then pass as parameter
     // For now, calculate week dates from selectedDate to avoid Rx access
     final weekStart = _getStartOfWeek(selectedDate);
     final weekDates = List.generate(7, (index) => weekStart.add(Duration(days: index)));
     
     // Group by date
-    final hoursByDate = <String, List<Map<String, dynamic>>>{};
+    final activitiesByDate = <String, List<Map<String, dynamic>>>{};
     double weeklyTotal = 0.0;
 
-    for (var entry in workHoursData) {
-      // API returns 'work_date' field, not 'date'
+    for (var entry in activitiesData) {
+      // Handle both 'work_date' (work hours) and 'date' (events) fields
       final entryDate = entry['work_date']?.toString() ?? entry['date']?.toString() ?? '';
       final dateStr = entryDate.contains('T') ? entryDate.split('T')[0] : entryDate;
       if (dateStr.isNotEmpty) {
-        hoursByDate.putIfAbsent(dateStr, () => []);
-        hoursByDate[dateStr]!.add(entry);
-        weeklyTotal += _calculateHours(entry);
+        // Verify date is within the week range
+        try {
+          final entryDateTime = DateTime.parse(dateStr);
+          final weekStartDate = DateTime(weekStart.year, weekStart.month, weekStart.day);
+          final weekEndDate = weekStartDate.add(const Duration(days: 6));
+          final entryDateOnly = DateTime(entryDateTime.year, entryDateTime.month, entryDateTime.day);
+          
+          if (entryDateOnly.isAfter(weekStartDate.subtract(const Duration(days: 1))) &&
+              entryDateOnly.isBefore(weekEndDate.add(const Duration(days: 1)))) {
+            activitiesByDate.putIfAbsent(dateStr, () => []);
+            activitiesByDate[dateStr]!.add(entry);
+            weeklyTotal += _calculateHours(entry);
+          }
+        } catch (e) {
+          // Skip invalid dates
+          continue;
+        }
       }
     }
 
@@ -297,51 +311,50 @@ class UserWorkHoursModal extends GetView<CalendarController> {
           const SizedBox(height: 12),
           ...weekDates.map((date) {
             final dateStr = CalendarUtils.formatDateToIso(date);
-            final dayHours = hoursByDate[dateStr] ?? [];
+            final dayActivities = activitiesByDate[dateStr] ?? [];
             double dayTotal = 0.0;
-            for (var entry in dayHours) {
+            for (var entry in dayActivities) {
               dayTotal += _calculateHours(entry);
             }
 
-            return _buildDayCard(date, dayTotal, dayHours);
+            return _buildDayCard(date, dayTotal, dayActivities);
           }),
         ],
       ),
     );
   }
 
-  Widget _buildMonthView(List<Map<String, dynamic>> workHoursData) {
+  Widget _buildMonthView(List<Map<String, dynamic>> activitiesData) {
     // Calculate month dates from selectedDate to avoid Rx access
+    // Use year and month from selectedDate, ignore the day
     final year = selectedDate.year;
     final month = selectedDate.month;
     final firstDay = DateTime(year, month, 1);
     final lastDay = DateTime(year, month + 1, 0);
     final monthDates = List.generate(lastDay.day, (index) => DateTime(year, month, index + 1));
     
-    // Group by date
-    final hoursByDate = <String, List<Map<String, dynamic>>>{};
+    // Group activities by date (all entries should already be in the target month from controller)
+    final activitiesByDate = <String, List<Map<String, dynamic>>>{};
     double monthlyTotal = 0.0;
 
-    for (var entry in workHoursData) {
-      // API returns 'work_date' field, not 'date'
+    for (var entry in activitiesData) {
+      // Handle both 'work_date' (work hours) and 'date' (events) fields
       final entryDate = entry['work_date']?.toString() ?? entry['date']?.toString() ?? '';
       final dateStr = entryDate.contains('T') ? entryDate.split('T')[0] : entryDate;
+      
       if (dateStr.isNotEmpty) {
-        hoursByDate.putIfAbsent(dateStr, () => []);
-        hoursByDate[dateStr]!.add(entry);
-        monthlyTotal += _calculateHours(entry);
-      }
-    }
-
-    // Filter to only dates in current month
-    final monthDateStrings = monthDates
-        .map((date) => CalendarUtils.formatDateToIso(date))
-        .toSet();
-
-    final monthHoursByDate = <String, List<Map<String, dynamic>>>{};
-    for (var dateStr in hoursByDate.keys) {
-      if (monthDateStrings.contains(dateStr)) {
-        monthHoursByDate[dateStr] = hoursByDate[dateStr]!;
+        // Verify the date is in the target month (double-check for safety)
+        try {
+          final entryDateTime = DateTime.parse(dateStr);
+          if (entryDateTime.year == year && entryDateTime.month == month) {
+            activitiesByDate.putIfAbsent(dateStr, () => []);
+            activitiesByDate[dateStr]!.add(entry);
+            monthlyTotal += _calculateHours(entry);
+          }
+        } catch (e) {
+          // Skip invalid dates
+          continue;
+        }
       }
     }
 
@@ -357,9 +370,9 @@ class UserWorkHoursModal extends GetView<CalendarController> {
             date: DateFormat('MMMM yyyy').format(selectedDate),
           ),
           const SizedBox(height: 20),
-          // Days with hours
+          // Days with activities
           Text(
-            'Days with Work Hours',
+            'Days with Activities',
             style: AppTextStyles.h4.copyWith(
               fontWeight: FontWeight.w600,
               color: isDark
@@ -368,12 +381,14 @@ class UserWorkHoursModal extends GetView<CalendarController> {
             ),
           ),
           const SizedBox(height: 12),
-          if (monthHoursByDate.isEmpty)
+          // Show all days of the month that have activities
+          // Sort entries by date for chronological display
+          if (activitiesByDate.isEmpty)
             Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
                 child: Text(
-                  'No work hours for this month',
+                  'No activities for this month',
                   style: AppTextStyles.bodyMedium.copyWith(
                     color: isDark
                         ? AppColors.mutedForegroundDark
@@ -383,15 +398,23 @@ class UserWorkHoursModal extends GetView<CalendarController> {
               ),
             )
           else
-            ...monthHoursByDate.entries.map((entry) {
-              final date = DateTime.parse(entry.key);
-              final dayHours = entry.value;
-              double dayTotal = 0.0;
-              for (var hourEntry in dayHours) {
-                dayTotal += _calculateHours(hourEntry);
-              }
-              return _buildDayCard(date, dayTotal, dayHours);
-            }),
+            ...() {
+              // Sort entries by date
+              final sortedEntries = activitiesByDate.entries.toList()
+                ..sort((a, b) => a.key.compareTo(b.key));
+              
+              // Map to widgets
+              return sortedEntries.map((entry) {
+                final date = DateTime.parse(entry.key);
+                final dayActivities = entry.value;
+                double dayTotal = 0.0;
+                // Recalculate total to ensure accuracy
+                for (var activityEntry in dayActivities) {
+                  dayTotal += _calculateHours(activityEntry);
+                }
+                return _buildDayCard(date, dayTotal, dayActivities);
+              }).toList();
+            }(),
         ],
       ),
     );
@@ -511,22 +534,33 @@ class UserWorkHoursModal extends GetView<CalendarController> {
           ),
           if (entries.isNotEmpty) ...[
             const SizedBox(height: 12),
-            ...entries.map((entry) => _buildHourEntryCard(entry, isCompact: true)),
+            ...entries.map((entry) => _buildActivityEntryCard(entry, isCompact: true)),
           ],
         ],
       ),
     );
   }
 
-  Widget _buildHourEntryCard(Map<String, dynamic> entry, {bool isCompact = false}) {
-    final loginTimeStr = entry['login_time']?.toString() ?? '';
-    final logoutTimeStr = entry['logout_time']?.toString() ?? '';
+  Widget _buildActivityEntryCard(Map<String, dynamic> entry, {bool isCompact = false}) {
+    final entryType = entry['type']?.toString() ?? 'work_hour';
+    final isWorkHour = entryType == 'work_hour';
+    final isEvent = entryType == 'event';
+    
+    // Get time strings - work hours use login_time/logout_time, events use start_time/end_time
+    final startTimeStr = isWorkHour 
+        ? (entry['login_time']?.toString() ?? entry['start_time']?.toString() ?? '')
+        : (entry['start_time']?.toString() ?? '');
+    final endTimeStr = isWorkHour
+        ? (entry['logout_time']?.toString() ?? entry['end_time']?.toString() ?? '')
+        : (entry['end_time']?.toString() ?? '');
+    
     final totalHours = _calculateHours(entry);
-    final status = entry['status']?.toString() ?? 'pending';
+    final status = entry['status']?.toString() ?? (isWorkHour ? 'approved' : 'confirmed');
+    final title = entry['title']?.toString() ?? '';
     
     // Format time strings (remove seconds if present)
-    final loginTime = _formatTimeString(loginTimeStr);
-    final logoutTime = logoutTimeStr.isNotEmpty ? _formatTimeString(logoutTimeStr) : '--';
+    final startTime = _formatTimeString(startTimeStr);
+    final endTime = endTimeStr.isNotEmpty ? _formatTimeString(endTimeStr) : '--';
 
     return Container(
       margin: EdgeInsets.only(bottom: isCompact ? 8 : 12),
@@ -547,24 +581,39 @@ class UserWorkHoursModal extends GetView<CalendarController> {
                 Row(
                   children: [
                     Icon(
-                      Icons.access_time,
+                      isEvent ? Icons.event : Icons.access_time,
                       size: 16,
                       color: isDark
                           ? AppColors.mutedForegroundDark
                           : AppColors.mutedForegroundLight,
                     ),
                     const SizedBox(width: 8),
-                    Text(
-                      '$loginTime - $logoutTime',
-                      style: AppTextStyles.bodyMedium.copyWith(
-                        color: isDark
-                            ? AppColors.foregroundDark
-                            : AppColors.foregroundLight,
+                    Expanded(
+                      child: Text(
+                        title.isNotEmpty ? title : '$startTime - $endTime',
+                        style: AppTextStyles.bodyMedium.copyWith(
+                          color: isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight,
+                          fontWeight: isEvent ? FontWeight.w500 : FontWeight.normal,
+                        ),
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],
                 ),
-                if (!isCompact) ...[
+                if (title.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    '$startTime - $endTime',
+                    style: AppTextStyles.bodySmall.copyWith(
+                      color: isDark
+                          ? AppColors.mutedForegroundDark
+                          : AppColors.mutedForegroundLight,
+                    ),
+                  ),
+                ],
+                if (!isCompact && isWorkHour) ...[
                   const SizedBox(height: 4),
                   _buildStatusChip(status),
                 ],
@@ -622,7 +671,8 @@ class UserWorkHoursModal extends GetView<CalendarController> {
     );
   }
 
-  /// Calculate hours from entry, using total_hours if available, otherwise from login/logout times
+  /// Calculate hours from entry, using total_hours if available, otherwise from start/end times
+  /// Handles both events (start_time/end_time) and work hours (login_time/logout_time)
   double _calculateHours(Map<String, dynamic> entry) {
     // First try to use total_hours field
     final totalHoursValue = entry['total_hours'];
@@ -633,35 +683,43 @@ class UserWorkHoursModal extends GetView<CalendarController> {
       }
     }
     
-    // If total_hours is null or 0, calculate from login/logout times
-    final loginTimeStr = entry['login_time']?.toString() ?? '';
-    final logoutTimeStr = entry['logout_time']?.toString() ?? '';
+    // Determine entry type and get appropriate time fields
+    final entryType = entry['type']?.toString() ?? 'work_hour';
+    final isWorkHour = entryType == 'work_hour';
     
-    if (loginTimeStr.isEmpty || logoutTimeStr.isEmpty) {
+    // Get time strings - work hours use login_time/logout_time, events use start_time/end_time
+    final startTimeStr = isWorkHour
+        ? (entry['login_time']?.toString() ?? entry['start_time']?.toString() ?? '')
+        : (entry['start_time']?.toString() ?? '');
+    final endTimeStr = isWorkHour
+        ? (entry['logout_time']?.toString() ?? entry['end_time']?.toString() ?? '')
+        : (entry['end_time']?.toString() ?? '');
+    
+    if (startTimeStr.isEmpty || endTimeStr.isEmpty) {
       return 0.0;
     }
     
     try {
       // Parse time strings (format: "HH:MM:SS" or "HH:MM")
-      final loginParts = loginTimeStr.split(':');
-      final logoutParts = logoutTimeStr.split(':');
+      final startParts = startTimeStr.split(':');
+      final endParts = endTimeStr.split(':');
       
-      if (loginParts.length < 2 || logoutParts.length < 2) {
+      if (startParts.length < 2 || endParts.length < 2) {
         return 0.0;
       }
       
-      final loginHour = int.parse(loginParts[0]);
-      final loginMin = int.parse(loginParts[1]);
-      final logoutHour = int.parse(logoutParts[0]);
-      final logoutMin = int.parse(logoutParts[1]);
+      final startHour = int.parse(startParts[0]);
+      final startMin = int.parse(startParts[1]);
+      final endHour = int.parse(endParts[0]);
+      final endMin = int.parse(endParts[1]);
       
-      final loginMinutes = loginHour * 60 + loginMin;
-      final logoutMinutes = logoutHour * 60 + logoutMin;
-      final totalMinutes = logoutMinutes - loginMinutes;
+      final startMinutes = startHour * 60 + startMin;
+      final endMinutes = endHour * 60 + endMin;
+      var totalMinutes = endMinutes - startMinutes;
       
-      // Handle case where logout is next day
+      // Handle case where end time is next day
       if (totalMinutes < 0) {
-        return (24 * 60 + totalMinutes) / 60.0;
+        totalMinutes = (24 * 60) + totalMinutes;
       }
       
       return totalMinutes / 60.0;

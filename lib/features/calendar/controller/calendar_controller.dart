@@ -78,6 +78,9 @@ class CalendarController extends GetxController {
   static const int usersPerPage = 2; // Number of users to show per page
   final RxInt currentUserPage = 0.obs; // Current page index (0-based)
 
+  // Selected date for month view (used for month-based filtering without switching to day view)
+  final Rx<DateTime> selectedDate = DateTime.now().obs;
+
   @override
   void onInit() {
     super.onInit();
@@ -942,6 +945,17 @@ class CalendarController extends GetxController {
     print('🔄 [CalendarController] View type changed: ${viewType.value} → $type');
     viewType.value = type;
     selectedWeekDate.value = null; // Reset date filter when changing views
+    
+    // When switching to month view, initialize selectedDate to currentDate
+    // This ensures month view has a valid date for month-based filtering
+    if (type == 'month') {
+      selectedDate.value = DateTime(
+        currentDate.value.year,
+        currentDate.value.month,
+        currentDate.value.day,
+      );
+    }
+    
     resetUserPage(); // Reset pagination when changing views
     // Refresh events with new view type
     fetchAllEvents();
@@ -1717,93 +1731,160 @@ class CalendarController extends GetxController {
     }
   }
 
-  /// Extract work hours from existing meetings for a specific user and date range
+  /// Extract events and work hours from existing meetings for a specific user and date range
   /// Uses already-loaded calendar data instead of refetching from API
+  /// Returns unified list with both events and work hours
   List<Map<String, dynamic>> _extractWorkHoursFromMeetings({
     required String userEmail,
     required String viewType,
     required DateTime selectedDate,
   }) {
-    // Get all meetings (includes work hours with category='work_hour')
+    // Get all meetings (includes both events and work hours)
     final allMeetingsList = List<Meeting>.from(allMeetings);
     
-    // Filter to work hours only for this user
-    final userWorkHourMeetings = allMeetingsList.where((meeting) {
-      // Only work hours
-      if (meeting.category != 'work_hour') return false;
-      // Match by user email
+    // Filter to this user's meetings (both events and work hours)
+    final userMeetings = allMeetingsList.where((meeting) {
+      // Match by user email (creator)
       if (meeting.creator != userEmail) return false;
       return true;
     }).toList();
     
+    print('🔍 [CalendarController] Extracting activities (events + work hours) for $userEmail');
+    print('   View type: $viewType');
+    print('   Selected date: ${_formatDateString(selectedDate)}');
+    print('   Total user meetings found: ${userMeetings.length}');
+    
+    // Count events vs work hours
+    final eventsCount = userMeetings.where((m) => m.category != 'work_hour').length;
+    final workHoursCount = userMeetings.where((m) => m.category == 'work_hour').length;
+    print('   Events: $eventsCount, Work Hours: $workHoursCount');
+    
     // Filter by date range based on view type
-    final dateStr = _formatDateString(selectedDate);
     List<Meeting> filteredMeetings;
     
     if (viewType == 'day') {
-      // Only entries for the selected date
-      filteredMeetings = userWorkHourMeetings
+      // Day view: only entries for the selected date
+      final dateStr = _formatDateString(selectedDate);
+      filteredMeetings = userMeetings
           .where((m) => m.date == dateStr)
           .toList();
+      print('   Day view: Filtering for exact date $dateStr');
     } else if (viewType == 'week') {
-      // Entries for the week containing selectedDate (Monday to Sunday)
+      // Week view: entries for the week containing selectedDate (Monday to Sunday)
       final weekStart = _getStartOfWeek(selectedDate);
       final weekEnd = weekStart.add(const Duration(days: 6));
       final weekStartStr = _formatDateString(weekStart);
       final weekEndStr = _formatDateString(weekEnd);
       
-      filteredMeetings = userWorkHourMeetings.where((m) {
+      filteredMeetings = userMeetings.where((m) {
         final meetingDateStr = m.date;
         // Compare date strings (YYYY-MM-DD format)
         return meetingDateStr.compareTo(weekStartStr) >= 0 &&
                meetingDateStr.compareTo(weekEndStr) <= 0;
       }).toList();
+      print('   Week view: Filtering for week $weekStartStr to $weekEndStr');
     } else if (viewType == 'month') {
-      // Entries for the month containing selectedDate
-      filteredMeetings = userWorkHourMeetings.where((m) {
-        final meetingDate = DateTime.parse(m.date);
-        return meetingDate.year == selectedDate.year &&
-               meetingDate.month == selectedDate.month;
+      // Month view: entries for the ENTIRE month (year + month only, IGNORE day)
+      final targetYear = selectedDate.year;
+      final targetMonth = selectedDate.month;
+      
+      filteredMeetings = userMeetings.where((m) {
+        try {
+          final meetingDate = DateTime.parse(m.date);
+          // Match by year and month ONLY - ignore day completely
+          final matches = meetingDate.year == targetYear && meetingDate.month == targetMonth;
+          return matches;
+        } catch (e) {
+          // If date parsing fails, exclude this entry
+          print('⚠️ [CalendarController] Error parsing date: ${m.date}, error: $e');
+          return false;
+        }
       }).toList();
+      
+      print('   Month view: Filtering for ENTIRE month $targetYear-$targetMonth (ignoring day)');
     } else {
-      filteredMeetings = userWorkHourMeetings;
+      // Default: use selected date only
+      final dateStr = _formatDateString(selectedDate);
+      filteredMeetings = userMeetings
+          .where((m) => m.date == dateStr)
+          .toList();
+      print('   Default: Filtering for exact date $dateStr');
     }
     
-    // Convert Meeting objects to Map format expected by modal
+    print('   Filtered activities: ${filteredMeetings.length}');
+    
+    // Convert Meeting objects to unified Map format expected by modal
     return filteredMeetings.map((meeting) {
-      // Extract work hour ID from meeting ID (format: 'work_hour_123')
-      final hourId = meeting.id.replaceFirst('work_hour_', '');
+      final isWorkHour = meeting.category == 'work_hour';
       
-      // Parse date from meeting.date (YYYY-MM-DD format)
-      final workDate = DateTime.parse(meeting.date);
+      // Calculate duration from start/end times
+      final startParts = meeting.startTime.split(':');
+      final endParts = meeting.endTime.split(':');
       
-      // Calculate hours from start/end times
-      final loginParts = meeting.startTime.split(':');
-      final logoutParts = meeting.endTime.split(':');
-      final loginHour = int.parse(loginParts[0]);
-      final loginMin = loginParts.length > 1 ? int.parse(loginParts[1]) : 0;
-      final logoutHour = int.parse(logoutParts[0]);
-      final logoutMin = logoutParts.length > 1 ? int.parse(logoutParts[1]) : 0;
+      if (startParts.length < 2 || endParts.length < 2) {
+        // Invalid time format, skip
+        return null;
+      }
       
-      final loginMinutes = loginHour * 60 + loginMin;
-      final logoutMinutes = logoutHour * 60 + logoutMin;
-      final totalMinutes = logoutMinutes - loginMinutes;
+      final startHour = int.parse(startParts[0]);
+      final startMin = startParts.length > 1 ? int.parse(startParts[1]) : 0;
+      final endHour = int.parse(endParts[0]);
+      final endMin = endParts.length > 1 ? int.parse(endParts[1]) : 0;
+      
+      final startMinutes = startHour * 60 + startMin;
+      final endMinutes = endHour * 60 + endMin;
+      var totalMinutes = endMinutes - startMinutes;
+      
+      // Handle case where end time is next day
+      if (totalMinutes < 0) {
+        totalMinutes = (24 * 60) + totalMinutes;
+      }
+      
       final totalHours = totalMinutes / 60.0;
       
-      return {
-        'id': hourId,
-        'work_date': workDate.toIso8601String(),
-        'date': meeting.date,
-        'login_time': meeting.startTime,
-        'logout_time': meeting.endTime,
-        'total_hours': totalHours.toStringAsFixed(1),
-        'status': 'approved', // All work hours in calendar are approved
-        'user': {
-          'id': meeting.userId ?? 0,
-          'first_name': _extractFirstNameFromEmail(userEmail),
-        },
-      };
-    }).toList();
+      // Parse date from meeting.date (YYYY-MM-DD format)
+      final activityDate = DateTime.parse(meeting.date);
+      
+      if (isWorkHour) {
+        // Work hour entry
+        final hourId = meeting.id.replaceFirst('work_hour_', '');
+        return {
+          'type': 'work_hour',
+          'id': hourId,
+          'work_date': activityDate.toIso8601String(),
+          'date': meeting.date,
+          'login_time': meeting.startTime,
+          'logout_time': meeting.endTime,
+          'start_time': meeting.startTime,
+          'end_time': meeting.endTime,
+          'total_hours': totalHours.toStringAsFixed(1),
+          'status': 'approved', // All work hours in calendar are approved
+          'title': meeting.title,
+          'user': {
+            'id': meeting.userId ?? 0,
+            'first_name': _extractFirstNameFromEmail(userEmail),
+          },
+        };
+      } else {
+        // Event entry
+        return {
+          'type': 'event',
+          'id': meeting.id,
+          'date': meeting.date,
+          'start_time': meeting.startTime,
+          'end_time': meeting.endTime,
+          'total_hours': totalHours.toStringAsFixed(1),
+          'title': meeting.title,
+          'primaryEventType': meeting.primaryEventType,
+          'meetingType': meeting.meetingType,
+          'status': meeting.type,
+          'user': {
+            'id': meeting.userId ?? 0,
+            'first_name': _extractFirstNameFromEmail(userEmail),
+          },
+        };
+      }
+    }).where((entry) => entry != null).cast<Map<String, dynamic>>().toList();
   }
   
   /// Extract first name from email (e.g., "samim@user.com" -> "Samim")
@@ -1845,7 +1926,11 @@ class CalendarController extends GetxController {
       userWorkHoursData.value = workHoursData;
       isLoadingUserWorkHours.value = false;
       
-      print('✅ [CalendarController] Extracted ${workHoursData.length} work hours for $userEmail from existing data');
+      // Count events vs work hours in extracted data
+      final eventsCount = workHoursData.where((e) => e['type'] == 'event').length;
+      final workHoursCount = workHoursData.where((e) => e['type'] == 'work_hour').length;
+      print('✅ [CalendarController] Extracted ${workHoursData.length} activities for $userEmail from existing data');
+      print('   Events: $eventsCount, Work Hours: $workHoursCount');
       
       // Show modal immediately with extracted data
       Get.dialog(
