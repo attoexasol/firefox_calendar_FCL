@@ -416,36 +416,46 @@ class UserWorkHoursModal extends GetView<CalendarController> {
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: AppTextStyles.labelMedium.copyWith(
-                  color: isDark
-                      ? AppColors.mutedForegroundDark
-                      : AppColors.mutedForegroundLight,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  title,
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: isDark
+                        ? AppColors.mutedForegroundDark
+                        : AppColors.mutedForegroundLight,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: AppTextStyles.h3.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: isDark
-                      ? AppColors.foregroundDark
-                      : AppColors.foregroundLight,
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: AppTextStyles.h3.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: isDark
+                        ? AppColors.foregroundDark
+                        : AppColors.foregroundLight,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          Text(
-            date,
-            style: AppTextStyles.bodySmall.copyWith(
-              color: isDark
-                  ? AppColors.mutedForegroundDark
-                  : AppColors.mutedForegroundLight,
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              date,
+              style: AppTextStyles.bodySmall.copyWith(
+                color: isDark
+                    ? AppColors.mutedForegroundDark
+                    : AppColors.mutedForegroundLight,
+              ),
+              textAlign: TextAlign.right,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -475,16 +485,21 @@ class UserWorkHoursModal extends GetView<CalendarController> {
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                DateFormat('EEEE, MMMM d').format(date),
-                style: AppTextStyles.bodyLarge.copyWith(
-                  fontWeight: FontWeight.w600,
-                  color: isDark
-                      ? AppColors.foregroundDark
-                      : AppColors.foregroundLight,
+              Expanded(
+                child: Text(
+                  DateFormat('EEEE, MMMM d').format(date),
+                  style: AppTextStyles.bodyLarge.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: isDark
+                        ? AppColors.foregroundDark
+                        : AppColors.foregroundLight,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 _formatHours(totalHours),
                 style: AppTextStyles.bodyLarge.copyWith(
