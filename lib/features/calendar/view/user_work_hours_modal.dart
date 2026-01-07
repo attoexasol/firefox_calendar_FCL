@@ -205,15 +205,18 @@ class UserWorkHoursModal extends GetView<CalendarController> {
     final dateStr = CalendarUtils.formatDateToIso(selectedDate);
     final dayHours = workHoursData
         .where((entry) {
-          final entryDate = entry['date']?.toString() ?? '';
+          // API returns 'work_date' field, not 'date'
+          final entryDate = entry['work_date']?.toString() ?? entry['date']?.toString() ?? '';
           // Handle both ISO format (2025-12-29T00:00:00.000000Z) and simple format (2025-12-29)
-          return entryDate.startsWith(dateStr);
+          final datePart = entryDate.contains('T') ? entryDate.split('T')[0] : entryDate;
+          return datePart == dateStr;
         })
         .toList();
 
     double totalHours = 0.0;
     for (var entry in dayHours) {
-      final hours = _parseHours(entry['total_hours']);
+      // Calculate hours from login/logout times if total_hours is null or 0
+      final hours = _calculateHours(entry);
       totalHours += hours;
     }
 
@@ -249,19 +252,23 @@ class UserWorkHoursModal extends GetView<CalendarController> {
   }
 
   Widget _buildWeekView(List<Map<String, dynamic>> workHoursData) {
-    // Get week dates
-    final weekDates = controller.getCurrentWeekDates();
+    // Get week dates - extract from controller ONCE in Obx, then pass as parameter
+    // For now, calculate week dates from selectedDate to avoid Rx access
+    final weekStart = _getStartOfWeek(selectedDate);
+    final weekDates = List.generate(7, (index) => weekStart.add(Duration(days: index)));
     
     // Group by date
     final hoursByDate = <String, List<Map<String, dynamic>>>{};
     double weeklyTotal = 0.0;
 
     for (var entry in workHoursData) {
-      final dateStr = entry['date']?.toString().split('T')[0] ?? '';
+      // API returns 'work_date' field, not 'date'
+      final entryDate = entry['work_date']?.toString() ?? entry['date']?.toString() ?? '';
+      final dateStr = entryDate.contains('T') ? entryDate.split('T')[0] : entryDate;
       if (dateStr.isNotEmpty) {
         hoursByDate.putIfAbsent(dateStr, () => []);
         hoursByDate[dateStr]!.add(entry);
-        weeklyTotal += _parseHours(entry['total_hours']);
+        weeklyTotal += _calculateHours(entry);
       }
     }
 
@@ -293,7 +300,7 @@ class UserWorkHoursModal extends GetView<CalendarController> {
             final dayHours = hoursByDate[dateStr] ?? [];
             double dayTotal = 0.0;
             for (var entry in dayHours) {
-              dayTotal += _parseHours(entry['total_hours']);
+              dayTotal += _calculateHours(entry);
             }
 
             return _buildDayCard(date, dayTotal, dayHours);
@@ -304,25 +311,31 @@ class UserWorkHoursModal extends GetView<CalendarController> {
   }
 
   Widget _buildMonthView(List<Map<String, dynamic>> workHoursData) {
-    // Get month dates
-    final monthDates = controller.getMonthDates();
+    // Calculate month dates from selectedDate to avoid Rx access
+    final year = selectedDate.year;
+    final month = selectedDate.month;
+    final firstDay = DateTime(year, month, 1);
+    final lastDay = DateTime(year, month + 1, 0);
+    final monthDates = List.generate(lastDay.day, (index) => DateTime(year, month, index + 1));
     
     // Group by date
     final hoursByDate = <String, List<Map<String, dynamic>>>{};
     double monthlyTotal = 0.0;
 
     for (var entry in workHoursData) {
-      final dateStr = entry['date']?.toString().split('T')[0] ?? '';
+      // API returns 'work_date' field, not 'date'
+      final entryDate = entry['work_date']?.toString() ?? entry['date']?.toString() ?? '';
+      final dateStr = entryDate.contains('T') ? entryDate.split('T')[0] : entryDate;
       if (dateStr.isNotEmpty) {
         hoursByDate.putIfAbsent(dateStr, () => []);
         hoursByDate[dateStr]!.add(entry);
-        monthlyTotal += _parseHours(entry['total_hours']);
+        monthlyTotal += _calculateHours(entry);
       }
     }
 
     // Filter to only dates in current month
     final monthDateStrings = monthDates
-        .map((md) => CalendarUtils.formatDateToIso(md.date))
+        .map((date) => CalendarUtils.formatDateToIso(date))
         .toSet();
 
     final monthHoursByDate = <String, List<Map<String, dynamic>>>{};
@@ -375,7 +388,7 @@ class UserWorkHoursModal extends GetView<CalendarController> {
               final dayHours = entry.value;
               double dayTotal = 0.0;
               for (var hourEntry in dayHours) {
-                dayTotal += _parseHours(hourEntry['total_hours']);
+                dayTotal += _calculateHours(hourEntry);
               }
               return _buildDayCard(date, dayTotal, dayHours);
             }),
@@ -491,10 +504,14 @@ class UserWorkHoursModal extends GetView<CalendarController> {
   }
 
   Widget _buildHourEntryCard(Map<String, dynamic> entry, {bool isCompact = false}) {
-    final loginTime = entry['login_time']?.toString() ?? '';
-    final logoutTime = entry['logout_time']?.toString() ?? '';
-    final totalHours = _parseHours(entry['total_hours']);
+    final loginTimeStr = entry['login_time']?.toString() ?? '';
+    final logoutTimeStr = entry['logout_time']?.toString() ?? '';
+    final totalHours = _calculateHours(entry);
     final status = entry['status']?.toString() ?? 'pending';
+    
+    // Format time strings (remove seconds if present)
+    final loginTime = _formatTimeString(loginTimeStr);
+    final logoutTime = logoutTimeStr.isNotEmpty ? _formatTimeString(logoutTimeStr) : '--';
 
     return Container(
       margin: EdgeInsets.only(bottom: isCompact ? 8 : 12),
@@ -590,6 +607,54 @@ class UserWorkHoursModal extends GetView<CalendarController> {
     );
   }
 
+  /// Calculate hours from entry, using total_hours if available, otherwise from login/logout times
+  double _calculateHours(Map<String, dynamic> entry) {
+    // First try to use total_hours field
+    final totalHoursValue = entry['total_hours'];
+    if (totalHoursValue != null) {
+      final parsed = _parseHours(totalHoursValue);
+      if (parsed > 0.0) {
+        return parsed;
+      }
+    }
+    
+    // If total_hours is null or 0, calculate from login/logout times
+    final loginTimeStr = entry['login_time']?.toString() ?? '';
+    final logoutTimeStr = entry['logout_time']?.toString() ?? '';
+    
+    if (loginTimeStr.isEmpty || logoutTimeStr.isEmpty) {
+      return 0.0;
+    }
+    
+    try {
+      // Parse time strings (format: "HH:MM:SS" or "HH:MM")
+      final loginParts = loginTimeStr.split(':');
+      final logoutParts = logoutTimeStr.split(':');
+      
+      if (loginParts.length < 2 || logoutParts.length < 2) {
+        return 0.0;
+      }
+      
+      final loginHour = int.parse(loginParts[0]);
+      final loginMin = int.parse(loginParts[1]);
+      final logoutHour = int.parse(logoutParts[0]);
+      final logoutMin = int.parse(logoutParts[1]);
+      
+      final loginMinutes = loginHour * 60 + loginMin;
+      final logoutMinutes = logoutHour * 60 + logoutMin;
+      final totalMinutes = logoutMinutes - loginMinutes;
+      
+      // Handle case where logout is next day
+      if (totalMinutes < 0) {
+        return (24 * 60 + totalMinutes) / 60.0;
+      }
+      
+      return totalMinutes / 60.0;
+    } catch (e) {
+      return 0.0;
+    }
+  }
+
   double _parseHours(dynamic hoursValue) {
     if (hoursValue == null) return 0.0;
     if (hoursValue is double) return hoursValue;
@@ -598,6 +663,23 @@ class UserWorkHoursModal extends GetView<CalendarController> {
       return double.tryParse(hoursValue) ?? 0.0;
     }
     return 0.0;
+  }
+
+  /// Get start of week (Monday) for a given date
+  DateTime _getStartOfWeek(DateTime date) {
+    final weekday = date.weekday;
+    // Monday is weekday 1, so subtract (weekday - 1) days
+    return date.subtract(Duration(days: weekday - 1));
+  }
+
+  /// Format time string to HH:MM format (remove seconds if present)
+  String _formatTimeString(String timeStr) {
+    if (timeStr.isEmpty) return '--';
+    final parts = timeStr.split(':');
+    if (parts.length >= 2) {
+      return '${parts[0]}:${parts[1]}';
+    }
+    return timeStr;
   }
 
   String _formatHours(double hours) {
