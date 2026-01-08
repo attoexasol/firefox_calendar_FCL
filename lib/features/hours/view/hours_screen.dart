@@ -5,6 +5,7 @@ import 'package:firefox_calendar/core/theme/app_theme.dart';
 import 'package:firefox_calendar/core/widgets/bottom_nav.dart';
 import 'package:firefox_calendar/core/widgets/top_bar.dart';
 import 'package:firefox_calendar/features/hours/controller/hours_controller.dart';
+import 'package:firefox_calendar/features/dashboard/controller/dashboard_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -37,46 +38,439 @@ class HoursScreen extends GetView<HoursController> {
       backgroundColor: isDark
           ? AppColors.backgroundDark
           : AppColors.backgroundLight,
-      body: SafeArea(
-        child: Column(
+      body: Stack(
+        children: [
+          // Main content
+          SafeArea(
+            child: Column(
+              children: [
+                // Top Bar
+                const TopBar(title: 'Work Hours'),
+
+                // Timer Controls Section (Hours Screen ONLY)
+                _buildTimerControls(context, isDark),
+
+                // View by Tabs Section
+                _buildViewByTabs(context, isDark),
+
+                // Date Navigation Section
+                _buildDateNavigation(context, isDark),
+
+                // Summary Card + Events + Work Logs (unified scroll)
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: CustomScrollView(
+                      slivers: [
+                        // Summary Card (fixed at top)
+                        SliverToBoxAdapter(
+                          child: _buildSummaryCard(isDark),
+                        ),
+                        
+                        const SliverToBoxAdapter(
+                          child: SizedBox(height: 16),
+                        ),
+
+                        // Calendar Events Section (scrollable)
+                        Obx(() => _buildCalendarEventsSliver(isDark)),
+
+                        // Work Logs List (scrollable)
+                        _buildWorkLogsSliver(isDark),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          // Start Timer Modal Overlay
+          Obx(() {
+            if (controller.showStartTimerModal.value) {
+              return _buildStartTimerModal(context, isDark);
+            }
+            return const SizedBox.shrink();
+          }),
+        ],
+      ),
+      bottomNavigationBar: const BottomNav(),
+    );
+  }
+
+  /// Build Start Timer Modal
+  Widget _buildStartTimerModal(BuildContext context, bool isDark) {
+    return Container(
+      color: Colors.black.withValues(alpha: 0.5),
+      child: Center(
+        child: Container(
+          margin: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: isDark ? AppColors.cardDark : AppColors.cardLight,
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+          ),
+          constraints: const BoxConstraints(maxWidth: 500),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Start Timer',
+                      style: AppTextStyles.h3.copyWith(
+                        color: isDark
+                            ? AppColors.foregroundDark
+                            : AppColors.foregroundLight,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: controller.closeStartTimerModal,
+                      icon: const Icon(Icons.close),
+                      color: isDark
+                          ? AppColors.foregroundDark
+                          : AppColors.foregroundLight,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                // Work Type Dropdown
+                Text(
+                  'Work Type *',
+                  style: AppTextStyles.labelMedium.copyWith(
+                    color: isDark
+                        ? AppColors.foregroundDark
+                        : AppColors.foregroundLight,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Obx(() {
+                  if (controller.isLoadingWorkTypes.value) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+
+                  return DropdownButtonFormField<String>(
+                    value: controller.selectedWorkType.value.isEmpty
+                        ? null
+                        : controller.selectedWorkType.value,
+                    decoration: InputDecoration(
+                      hintText: 'Select work type',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                      ),
+                    ),
+                    items: controller.workTypeOptions.map((option) {
+                      final name = option['name']?.toString() ?? '';
+                      return DropdownMenuItem<String>(
+                        value: name,
+                        child: Text(name),
+                      );
+                    }).toList(),
+                    onChanged: (value) {
+                      controller.selectedWorkType.value = value ?? '';
+                      // Clear description error when work type changes
+                      controller.descriptionError.value = '';
+                    },
+                  );
+                }),
+                const SizedBox(height: 16),
+
+                // Description Field
+                Obx(() {
+                  final isRequired = controller.isDescriptionRequired(
+                    controller.selectedWorkType.value,
+                  );
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Description${isRequired ? ' *' : ''}',
+                        style: AppTextStyles.labelMedium.copyWith(
+                          color: isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Obx(() {
+                        return TextField(
+                          controller: controller.descriptionController,
+                          onChanged: (value) {
+                            controller.descriptionText.value = value;
+                            controller.descriptionError.value = '';
+                          },
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            hintText: 'Enter description',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                            ),
+                            errorText: controller.descriptionError.value.isEmpty
+                                ? null
+                                : controller.descriptionError.value,
+                          ),
+                        );
+                      }),
+                    ],
+                  );
+                }),
+                const SizedBox(height: 24),
+
+                // Buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: controller.closeStartTimerModal,
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Obx(() {
+                        final isValid = controller.selectedWorkType.value.isNotEmpty &&
+                            (!controller.isDescriptionRequired(
+                              controller.selectedWorkType.value,
+                            ) ||
+                                controller.descriptionText.value.trim().isNotEmpty);
+                        return ElevatedButton(
+                          onPressed: isValid && !controller.isLoading.value
+                              ? controller.startTimerWithDetails
+                              : null,
+                          child: controller.isLoading.value
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Start Timer'),
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Build Timer Controls Section (Hours Screen ONLY)
+  /// Shows Start/End timer buttons and active timer state
+  Widget _buildTimerControls(BuildContext context, bool isDark) {
+    return Obx(() {
+      final activeSession = controller.getActiveSession();
+      final hasActiveSession = activeSession != null;
+      
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: hasActiveSession
+              ? AppColors.primary.withValues(alpha: 0.1)
+              : (isDark ? AppColors.cardDark : AppColors.cardLight),
+          border: Border(
+            bottom: BorderSide(
+              color: isDark ? AppColors.borderDark : AppColors.borderLight,
+              width: 1,
+            ),
+          ),
+        ),
+        child: Row(
           children: [
-            // Top Bar
-            const TopBar(title: 'Work Hours'),
-
-            // View by Tabs Section
-            _buildViewByTabs(context, isDark),
-
-            // Date Navigation Section
-            _buildDateNavigation(context, isDark),
-
-            // Summary Card + Events + Work Logs (unified scroll)
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: CustomScrollView(
-                  slivers: [
-                    // Summary Card (fixed at top)
-                    SliverToBoxAdapter(
-                      child: _buildSummaryCard(isDark),
+            // Timer Status Info (if running)
+            if (hasActiveSession) ...[
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.timer,
+                          size: 16,
+                          color: AppColors.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Timer Running',
+                          style: AppTextStyles.labelMedium.copyWith(
+                            color: AppColors.primary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
-                    
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: 16),
-                    ),
-
-                    // Calendar Events Section (scrollable)
-                    Obx(() => _buildCalendarEventsSliver(isDark)),
-
-                    // Work Logs List (scrollable)
-                    _buildWorkLogsSliver(isDark),
+                    if (activeSession!.workType.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Work Type: ${activeSession.workType}',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: isDark
+                              ? AppColors.mutedForegroundDark
+                              : const Color(0xFF6B7280),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                    if (activeSession.description != null && activeSession.description!.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        'Description: ${activeSession.description}',
+                        style: AppTextStyles.bodySmall.copyWith(
+                          color: isDark
+                              ? AppColors.mutedForegroundDark
+                              : const Color(0xFF6B7280),
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),
-            ),
+              const SizedBox(width: 12),
+              // End Timer Button
+              ElevatedButton.icon(
+                onPressed: () => _handleEndTimer(context, activeSession, isDark),
+                icon: const Icon(Icons.stop, size: 18),
+                label: const Text('End Timer'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red.shade600,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                ),
+              ),
+            ] else ...[
+              // Start Timer Button (when no active session)
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () => controller.openStartTimerModal(),
+                  icon: const Icon(Icons.play_arrow, size: 20),
+                  label: const Text('Start Timer'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.primary,
+                    foregroundColor: AppColors.primaryForegroundLight,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
+      );
+    });
+  }
+
+  /// Handle End Timer with confirmation dialog
+  Future<void> _handleEndTimer(BuildContext context, WorkLog activeSession, bool isDark) async {
+    // Calculate duration
+    final now = DateTime.now();
+    final startTime = activeSession.loginTime ?? now;
+    final duration = now.difference(startTime);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    final durationText = '${hours}h ${minutes}m';
+
+    // Show confirmation dialog with details
+    final confirmed = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Text('End Timer'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (activeSession.workType.isNotEmpty) ...[
+              _buildDialogRow('Work Type', activeSession.workType, isDark),
+              const SizedBox(height: 8),
+            ],
+            if (activeSession.description != null && activeSession.description!.isNotEmpty) ...[
+              _buildDialogRow('Description', activeSession.description!, isDark),
+              const SizedBox(height: 8),
+            ],
+            _buildDialogRow('Duration', durationText, isDark),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Get.back(result: true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('End Timer'),
+          ),
+        ],
       ),
-      bottomNavigationBar: const BottomNav(),
+    );
+
+    if (confirmed == true) {
+      // Call End Timer from DashboardController (existing logic)
+      try {
+        if (Get.isRegistered<DashboardController>()) {
+          final dashboardController = Get.find<DashboardController>();
+          await dashboardController.setEndTime();
+          // Refresh work logs
+          await controller.refreshWorkLogs();
+        }
+      } catch (e) {
+        print('⚠️ [HoursScreen] Could not end timer: $e');
+        Get.snackbar(
+          'Error',
+          'Failed to end timer',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+        );
+      }
+    }
+  }
+
+  /// Build dialog row for confirmation
+  Widget _buildDialogRow(String label, String value, bool isDark) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 80,
+          child: Text(
+            '$label:',
+            style: AppTextStyles.labelMedium.copyWith(
+              color: isDark
+                  ? AppColors.mutedForegroundDark
+                  : const Color(0xFF6B7280),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        Expanded(
+          child: Text(
+            value,
+            style: AppTextStyles.bodyMedium.copyWith(
+              color: isDark
+                  ? AppColors.foregroundDark
+                  : AppColors.foregroundLight,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -484,25 +878,54 @@ class HoursScreen extends GetView<HoursController> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    // Date
-                    Row(
+                    // Date and Work Type
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 16,
-                          color: isDark
-                              ? AppColors.mutedForegroundDark
-                              : const Color(0xFF6B7280),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.calendar_today,
+                              size: 16,
+                              color: isDark
+                                  ? AppColors.mutedForegroundDark
+                                  : const Color(0xFF6B7280),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              controller.formatWorkLogDate(log.date),
+                              style: AppTextStyles.bodyMedium.copyWith(
+                                color: isDark
+                                    ? AppColors.mutedForegroundDark
+                                    : const Color(0xFF6B7280),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          controller.formatWorkLogDate(log.date),
-                          style: AppTextStyles.bodyMedium.copyWith(
-                            color: isDark
-                                ? AppColors.mutedForegroundDark
-                                : const Color(0xFF6B7280),
+                        if (log.workType.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.work_outline,
+                                size: 14,
+                                color: isDark
+                                    ? AppColors.mutedForegroundDark
+                                    : const Color(0xFF6B7280),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                log.workType,
+                                style: AppTextStyles.bodySmall.copyWith(
+                                  color: isDark
+                                      ? AppColors.mutedForegroundDark
+                                      : const Color(0xFF6B7280),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],
@@ -662,6 +1085,63 @@ class HoursScreen extends GetView<HoursController> {
               ),
             ],
           ),
+
+          // Description (if available)
+          if (log.description != null && log.description!.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: isDark 
+                  ? AppColors.borderDark 
+                  : AppColors.borderLight,
+            ),
+            const SizedBox(height: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Description',
+                  style: AppTextStyles.bodySmall.copyWith(
+                    color: isDark
+                        ? AppColors.mutedForegroundDark
+                        : const Color(0xFF6B7280),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  log.description!,
+                  style: AppTextStyles.bodyMedium.copyWith(
+                    color: isDark
+                        ? AppColors.foregroundDark
+                        : AppColors.foregroundLight,
+                  ),
+                ),
+              ],
+            ),
+          ] else if (log.description == null || log.description!.isEmpty) ...[
+            const SizedBox(height: 16),
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: isDark 
+                  ? AppColors.borderDark 
+                  : AppColors.borderLight,
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Description: —',
+              style: AppTextStyles.bodySmall.copyWith(
+                color: isDark
+                    ? AppColors.mutedForegroundDark
+                    : const Color(0xFF6B7280),
+                fontSize: 12,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+          ],
 
           // Delete Button - ONLY for pending entries
           // Rules: 

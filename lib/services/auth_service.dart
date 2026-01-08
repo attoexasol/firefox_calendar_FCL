@@ -33,6 +33,7 @@ class AuthService {
   static const String getCalendarUserHoursEndpoint = '$baseUrl/calander/user_hours'; // Get calendar work hours (for overlay)
   static const String dashboardSummaryEndpoint = '$baseUrl/dashboard/summary'; // Get dashboard summary (approved hours only)
   static const String createLeaveApplicationEndpoint = '$baseUrl/create/user_leave_applications'; // Create leave application
+  static const String getEventSubTypesEndpoint = '$baseUrl/single/event_sub_types'; // Get work type dropdown options
   
   // =========================================================
   // DEPENDENCIES
@@ -1059,6 +1060,8 @@ class AuthService {
     String? logoutTime,
     String? totalHours,
     String? status, // IGNORED - always "pending" from frontend
+    String? workType, // Work type from dropdown
+    String? description, // Description text
   }) async {
     print('═══════════════════════════════════════════════════════════');
     print('🔵 [API CALL] Create User Hours');
@@ -1091,6 +1094,16 @@ class AuthService {
       // Only include total_hours if provided
       if (totalHours != null && totalHours.isNotEmpty) {
         requestData['total_hours'] = totalHours;
+      }
+      
+      // Include work_type if provided
+      if (workType != null && workType.isNotEmpty) {
+        requestData['work_type'] = workType;
+      }
+      
+      // Include description if provided
+      if (description != null && description.isNotEmpty) {
+        requestData['description'] = description;
       }
       
       // CRITICAL: Frontend MUST NEVER set "approved" status
@@ -1518,6 +1531,89 @@ class AuthService {
       }
     } catch (e) {
       print('❌ [AuthService] Get Calendar User Hours error: $e');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'Network error. Please check your connection.',
+        'data': [],
+        'error': e.toString(),
+      };
+    }
+  }
+
+  // =========================================================
+  // GET EVENT SUB TYPES (WORK TYPE DROPDOWN) API
+  // =========================================================
+
+  /// Get event sub types for work type dropdown
+  /// Endpoint: POST /api/single/event_sub_types
+  /// Returns: List of work types with name (label) and name (value)
+  Future<Map<String, dynamic>> getEventSubTypes() async {
+    print('═══════════════════════════════════════════════════════════');
+    print('🔵 [API CALL] Get Event Sub Types');
+    print('═══════════════════════════════════════════════════════════');
+
+    final apiToken = _storage.read('apiToken') ?? '';
+
+    if (apiToken.isEmpty) {
+      print('❌ [AuthService] API token not found');
+      print('═══════════════════════════════════════════════════════════');
+      return {
+        'success': false,
+        'message': 'API token not found. Please login again.',
+        'data': [],
+      };
+    }
+
+    try {
+      // Build request data
+      final requestData = <String, dynamic>{
+        'api_token': apiToken,
+      };
+
+      // Log request details
+      print('📍 URL: $getEventSubTypesEndpoint');
+      print('🔷 METHOD: POST');
+      print('📤 REQUEST HEADERS:');
+      print('   Content-Type: application/json');
+      print('   Accept: application/json');
+      print('📤 REQUEST BODY:');
+      print('   ${json.encode(requestData)}');
+
+      final response = await http.post(
+        Uri.parse(getEventSubTypesEndpoint),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode(requestData),
+      );
+
+      // Log response details
+      print('📥 RESPONSE STATUS: ${response.statusCode}');
+      print('📥 RESPONSE BODY:');
+      print('   ${response.body}');
+      print('═══════════════════════════════════════════════════════════');
+
+      final responseData = json.decode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode == 200) {
+        print('✅ [AuthService] Get Event Sub Types response status: ${response.statusCode}');
+        return {
+          'success': responseData['status'] == true,
+          'message': responseData['message'] ?? 'Event sub types fetched successfully',
+          'data': responseData['data'] ?? [],
+        };
+      } else {
+        print('❌ [AuthService] Get Event Sub Types failed: ${response.statusCode}');
+        return {
+          'success': false,
+          'message': responseData['message'] ?? 'Failed to fetch event sub types',
+          'data': [],
+        };
+      }
+    } catch (e) {
+      print('❌ [AuthService] Get Event Sub Types error: $e');
       print('═══════════════════════════════════════════════════════════');
       return {
         'success': false,

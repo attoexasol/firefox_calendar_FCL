@@ -1,4 +1,5 @@
 import 'package:firefox_calendar/services/auth_service.dart';
+import 'package:firefox_calendar/features/dashboard/controller/dashboard_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
@@ -47,6 +48,15 @@ class HoursController extends GetxController {
   // Loading and modal states
   final RxBool isLoading = false.obs;
   final RxBool showTimeEntryModal = false.obs;
+  final RxBool showStartTimerModal = false.obs;
+  
+  // Start Timer Modal state
+  final RxList<Map<String, dynamic>> workTypeOptions = <Map<String, dynamic>>[].obs;
+  final RxString selectedWorkType = ''.obs;
+  final RxString descriptionText = ''.obs;
+  final RxString descriptionError = ''.obs;
+  final RxBool isLoadingWorkTypes = false.obs;
+  final TextEditingController descriptionController = TextEditingController();
 
   // Computed values for summary
   // int get totalEntries => workLogs.length;
@@ -64,6 +74,8 @@ double get totalHours =>
     fetchWorkHours();
     // Fetch calendar events for informational display
     fetchCalendarEvents();
+    // Fetch work types for dropdown
+    fetchWorkTypes();
   }
 
   @override
@@ -946,6 +958,203 @@ double get totalHours =>
       'isDataConsistent': entriesWithCompleteTime == totalEntries,
     };
   }
+
+  // ============================================================
+  // START TIMER MODAL FUNCTIONALITY
+  // ============================================================
+
+  /// Fetch work types from API for dropdown
+  Future<void> fetchWorkTypes() async {
+    if (isLoadingWorkTypes.value) return;
+
+    try {
+      isLoadingWorkTypes.value = true;
+      print('🔄 [HoursController] Fetching work types...');
+
+      final result = await _authService.getEventSubTypes();
+
+      if (result['success'] == true && result['data'] != null) {
+        final data = result['data'];
+        if (data is List) {
+          workTypeOptions.value = data.map((item) {
+            if (item is Map<String, dynamic>) {
+              return {
+                'name': item['name']?.toString() ?? '',
+                'label': item['name']?.toString() ?? '',
+              };
+            }
+            return {'name': item.toString(), 'label': item.toString()};
+          }).toList();
+          print('✅ [HoursController] Fetched ${workTypeOptions.length} work types');
+        } else {
+          workTypeOptions.value = [];
+        }
+      } else {
+        print('❌ [HoursController] Failed to fetch work types: ${result['message']}');
+        workTypeOptions.value = [];
+      }
+    } catch (e) {
+      print('❌ [HoursController] Error fetching work types: $e');
+      workTypeOptions.value = [];
+    } finally {
+      isLoadingWorkTypes.value = false;
+    }
+  }
+
+  /// Open Start Timer modal
+  void openStartTimerModal() {
+    // Reset form
+    selectedWorkType.value = '';
+    descriptionText.value = '';
+    descriptionError.value = '';
+    descriptionController.text = ''; // Clear controller text
+    showStartTimerModal.value = true;
+  }
+
+  /// Close Start Timer modal
+  void closeStartTimerModal() {
+    showStartTimerModal.value = false;
+    // Reset form
+    selectedWorkType.value = '';
+    descriptionText.value = '';
+    descriptionError.value = '';
+    descriptionController.text = ''; // Clear controller text
+  }
+
+  /// Check if description is required for selected work type
+  bool isDescriptionRequired(String? workType) {
+    if (workType == null || workType.isEmpty) return false;
+    
+    final requiredTypes = [
+      'Team Meeting',
+      'One-on-one',
+      'Client Meeting',
+      'Training',
+      'Work Day',
+      'Personal Appointment',
+    ];
+    
+    return requiredTypes.contains(workType);
+  }
+
+  /// Validate form before starting timer
+  bool validateStartTimerForm() {
+    descriptionError.value = '';
+    
+    // Work type is required
+    if (selectedWorkType.value.isEmpty) {
+      return false;
+    }
+    
+    // Description is required for certain work types
+    if (isDescriptionRequired(selectedWorkType.value)) {
+      if (descriptionText.value.trim().isEmpty) {
+        descriptionError.value = 'Description is required for ${selectedWorkType.value}';
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  /// Start timer with work type and description
+  /// This method is called from the modal when user clicks "Start Timer"
+  Future<void> startTimerWithDetails() async {
+    if (!validateStartTimerForm()) {
+      return;
+    }
+
+    try {
+      isLoading.value = true;
+
+      final now = DateTime.now();
+      final todayStr = now.toIso8601String().split('T')[0];
+      final currentDateTime = now.toIso8601String().split('.')[0];
+      final loginTime = currentDateTime.replaceAll('T', ' ');
+
+      print('🟢 [HoursController] Starting timer with details');
+      print('   Work Type: ${selectedWorkType.value}');
+      print('   Description: ${descriptionText.value}');
+      print('   Date: $todayStr');
+      print('   Login Time: $loginTime');
+
+      // Call CREATE user hours API with work_type and description
+      final result = await _authService.createUserHours(
+        title: 'Work Day',
+        date: todayStr,
+        loginTime: loginTime,
+        logoutTime: null,
+        totalHours: null,
+        status: 'pending',
+        workType: selectedWorkType.value,
+        description: descriptionText.value.trim().isNotEmpty ? descriptionText.value.trim() : null,
+      );
+
+      if (result['success'] == true) {
+        print('✅ [HoursController] Timer started successfully');
+        
+        // Close modal
+        closeStartTimerModal();
+        
+        // Refresh work logs
+        await refreshWorkLogs();
+        
+        // Also refresh dashboard if available
+        try {
+          if (Get.isRegistered<DashboardController>()) {
+            final dashboardController = Get.find<DashboardController>();
+            await dashboardController.refreshDashboardSummary();
+          }
+        } catch (e) {
+          print('⚠️ [HoursController] Could not refresh dashboard: $e');
+        }
+
+        Get.snackbar(
+          'Success',
+          'Timer started successfully',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.green.shade100,
+          colorText: Colors.green.shade900,
+          duration: const Duration(seconds: 2),
+        );
+      } else {
+        Get.snackbar(
+          'Error',
+          result['message'] ?? 'Failed to start timer',
+          snackPosition: SnackPosition.BOTTOM,
+          backgroundColor: Colors.red.shade100,
+          colorText: Colors.red.shade900,
+          duration: const Duration(seconds: 3),
+        );
+      }
+    } catch (e) {
+      print('❌ [HoursController] Error starting timer: $e');
+      Get.snackbar(
+        'Error',
+        'Failed to start timer: ${e.toString()}',
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: Colors.red.shade100,
+        colorText: Colors.red.shade900,
+        duration: const Duration(seconds: 2),
+      );
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Get current active session (if timer is running)
+  WorkLog? getActiveSession() {
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    
+    return workLogs.firstWhereOrNull((log) {
+      final logDate = DateTime(log.date.year, log.date.month, log.date.day);
+      return logDate.isAtSameMomentAs(todayDate) && 
+             log.status.toLowerCase() == 'pending' &&
+             log.loginTime != null &&
+             log.logoutTime == null;
+    });
+  }
 }
 
 /// Work Log Model - for work hours entries
@@ -978,6 +1187,7 @@ class WorkLog {
   final double hours; // Total hours worked (calculated from loginTime and logoutTime)
   final String status; // pending, approved, rejected (default: "pending")
   final DateTime timestamp; // Logged time (when entry was created)
+  final String? description; // Description text (optional)
   
   // Start and end times - required for Dashboard summaries and Payroll calculations
   final DateTime? loginTime; // Start time (when work session started)
@@ -993,6 +1203,7 @@ class WorkLog {
     required this.timestamp,
     this.loginTime, // Optional - start time of work session
     this.logoutTime, // Optional - end time of work session
+    this.description, // Optional - description text
   }) : status = status ?? 'pending'; // Default status is "pending"
 
   /// Check if entry has complete time information (both start and end times)
@@ -1025,6 +1236,7 @@ class WorkLog {
     'timestamp': timestamp.toIso8601String(),
     'login_time': loginTime?.toIso8601String(),
     'logout_time': logoutTime?.toIso8601String(),
+    'description': description,
   };
 
   factory WorkLog.fromJson(Map<String, dynamic> json) {
@@ -1097,13 +1309,14 @@ class WorkLog {
     return WorkLog(
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? 'Work Day',
-      workType: json['workType'] ?? 'Development',
+      workType: json['workType'] ?? json['work_type'] ?? 'Development',
       date: parsedDate,
       hours: parsedHours,
       status: json['status'] ?? 'pending',
       timestamp: parsedTimestamp,
       loginTime: parsedLoginTime,
       logoutTime: parsedLogoutTime,
+      description: json['description']?.toString(),
     );
   }
 
@@ -1207,13 +1420,14 @@ class WorkLog {
     return WorkLog(
       id: json['id']?.toString() ?? '',
       title: json['title'] ?? 'Work Day',
-      workType: json['workType'] ?? 'Development',
+      workType: json['workType'] ?? json['work_type'] ?? 'Development',
       date: parsedDate,
       hours: parsedHours,
       status: statusFromApi, // Status comes directly from API - no modification
       timestamp: parsedTimestamp,
       loginTime: parsedLoginTime,
       logoutTime: parsedLogoutTime,
+      description: json['description']?.toString(),
     );
   }
 }
