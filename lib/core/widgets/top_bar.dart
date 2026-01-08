@@ -1,11 +1,13 @@
 import 'package:firefox_calendar/core/theme/app_colors.dart';
 import 'package:firefox_calendar/core/theme/app_text_styles.dart';
+import 'package:firefox_calendar/features/dashboard/controller/dashboard_controller.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
 /// Top Bar
 /// Converted from React TopBar.tsx with logout API integration
-/// NOTE: Start/End timer buttons are now ONLY in Hours screen, not in TopBar
-class TopBar extends StatelessWidget implements PreferredSizeWidget {
+class TopBar extends GetView<DashboardController>
+    implements PreferredSizeWidget {
   final String title;
 
   const TopBar({super.key, required this.title});
@@ -74,6 +76,100 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
 
               const SizedBox(width: 8),
+
+              // Start Time Button
+              // Disabled if a pending entry already exists for today
+              Obx(
+                () {
+                  final hasPending = controller.hasPendingEntryToday;
+                  final isLoading = controller.isStartTimeLoading.value;
+                  
+                  if (isLoading) {
+                    return Container(
+                      width: 36,
+                      height: 36,
+                      padding: const EdgeInsets.all(8),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.green.shade600,
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  return IconButton(
+                    onPressed: hasPending ? null : controller.setStartTime,
+                    icon: Icon(
+                      Icons.play_circle_outline, // Start/Play icon for Start Time
+                      size: 20,
+                      color: hasPending
+                          ? Colors.grey.shade400 // Disabled color
+                          : (controller.startTime.value.isNotEmpty
+                              ? Colors.green.shade600
+                              : Colors.green.shade600),
+                    ),
+                    tooltip: hasPending
+                        ? 'Pending entry exists for today'
+                        : (controller.startTime.value.isNotEmpty
+                            ? 'Start Time: ${controller.startTime.value.split(' ')[1]}'
+                            : 'Set Start Time'),
+                    style: IconButton.styleFrom(
+                      padding: const EdgeInsets.all(8),
+                      minimumSize: const Size(36, 36),
+                    ),
+                  );
+                },
+              ),
+
+              const SizedBox(width: 4),
+
+              // End Time Button
+              // Disabled if no pending entry exists for today
+              Obx(
+                () {
+                  final hasPending = controller.hasPendingEntryToday;
+                  final isLoading = controller.isEndTimeLoading.value;
+                  
+                  if (isLoading) {
+                    return Container(
+                      width: 36,
+                      height: 36,
+                      padding: const EdgeInsets.all(8),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight,
+                        ),
+                      ),
+                    );
+                  }
+                  
+                  return IconButton(
+                    onPressed: hasPending ? controller.setEndTime : null,
+                    icon: Icon(
+                      Icons.stop_circle_outlined, // Stop icon for End Time
+                      size: 20,
+                      color: hasPending
+                          ? (isDark
+                              ? AppColors.foregroundDark
+                              : AppColors.foregroundLight)
+                          : Colors.grey.shade400, // Disabled color
+                    ),
+                    tooltip: hasPending
+                        ? (controller.endTime.value.isNotEmpty
+                            ? 'End Time: ${controller.endTime.value.split(' ')[1]}'
+                            : 'End Work Session')
+                        : 'No pending entry to end',
+                    style: IconButton.styleFrom(
+                      padding: const EdgeInsets.all(8),
+                      minimumSize: const Size(36, 36),
+                    ),
+                  );
+                },
+              ),
             ],
           ),
         ),
