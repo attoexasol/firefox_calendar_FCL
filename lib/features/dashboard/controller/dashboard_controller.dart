@@ -314,16 +314,22 @@ class DashboardController extends GetxController {
         }
         
         // ============================================================
-        // AUTO-REFRESH CALENDAR SCREEN
+        // AUTO-REFRESH CALENDAR SCREEN & START REAL-TIME TRACKING
         // ============================================================
         // After successful START API call, refresh Calendar screen data
         // This ensures Calendar screen UI updates immediately without manual refresh
         // Uses GetX controller access to trigger CalendarController refresh
+        // Also starts real-time work tracking highlighting
         try {
           if (Get.isRegistered<CalendarController>()) {
             final calendarController = Get.find<CalendarController>();
             print('🔄 [DashboardController] Refreshing Calendar screen after START...');
             await calendarController.refreshCalendarData();
+            
+            // Start real-time work tracking in calendar
+            calendarController.startWorkSession(now);
+            print('🟢 [DashboardController] Real-time work tracking started in calendar');
+            
             print('✅ [DashboardController] Calendar screen refreshed successfully');
           } else {
             print('⚠️ [DashboardController] CalendarController not registered yet - will refresh when Calendar screen opens');
@@ -500,16 +506,22 @@ class DashboardController extends GetxController {
         }
         
         // ============================================================
-        // AUTO-REFRESH CALENDAR SCREEN
+        // AUTO-REFRESH CALENDAR SCREEN & STOP REAL-TIME TRACKING
         // ============================================================
         // After successful END API call, refresh Calendar screen data
         // This ensures Calendar screen UI updates immediately without manual refresh
         // Uses GetX controller access to trigger CalendarController refresh
+        // Also stops real-time work tracking highlighting (fixes the highlight)
         try {
           if (Get.isRegistered<CalendarController>()) {
             final calendarController = Get.find<CalendarController>();
             print('🔄 [DashboardController] Refreshing Calendar screen after END...');
             await calendarController.refreshCalendarData();
+            
+            // Stop real-time work tracking in calendar (fixes the highlight)
+            calendarController.stopWorkSession(now);
+            print('🔴 [DashboardController] Real-time work tracking stopped in calendar');
+            
             print('✅ [DashboardController] Calendar screen refreshed successfully');
           } else {
             print('⚠️ [DashboardController] CalendarController not registered yet - will refresh when Calendar screen opens');

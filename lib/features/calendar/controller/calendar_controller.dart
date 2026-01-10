@@ -1,4 +1,5 @@
 
+import 'dart:async';
 import 'package:firefox_calendar/features/calendar/controller/create_event_controller.dart';
 import 'package:firefox_calendar/features/calendar/view/user_work_hours_modal.dart';
 import 'package:firefox_calendar/routes/app_routes.dart';
@@ -81,16 +82,30 @@ class CalendarController extends GetxController {
   // Selected date for month view (used for month-based filtering without switching to day view)
   final Rx<DateTime> selectedDate = DateTime.now().obs;
 
+  // =========================================================
+  // REAL-TIME WORK TRACKING STATE
+  // =========================================================
+  /// Active work session state for real-time highlighting
+  /// Tracks the current work session started via START button
+  final RxBool isWorkSessionActive = false.obs; // True when START clicked, false when END clicked
+  final Rx<DateTime?> workSessionStartTime = Rx<DateTime?>(null); // When START was clicked
+  final Rx<DateTime?> workSessionEndTime = Rx<DateTime?>(null); // When END was clicked (null if still active)
+  final Rx<DateTime> currentTime = DateTime.now().obs; // Current time for real-time updates
+  Timer? _workTrackingTimer; // Timer for real-time updates
+
   @override
   void onInit() {
     super.onInit();
     loadUserData();
     fetchAllEvents(); // Fetch events from API on init (will also fetch work hours)
+    _initializeWorkTracking();
+    _startWorkTrackingTimer();
   }
 
   @override
   void onClose() {
     horizontalScrollController.dispose();
+    _workTrackingTimer?.cancel();
     super.onClose();
   }
 
@@ -1959,6 +1974,168 @@ class CalendarController extends GetxController {
         barrierDismissible: true,
       );
     }
+  }
+
+  // ============================================================================
+  // REAL-TIME WORK TRACKING METHODS
+  // ============================================================================
+
+  /// Initialize work tracking from storage
+  /// Checks if there's an active work session from DashboardController
+  void _initializeWorkTracking() {
+    try {
+      // Check if DashboardController exists and has active session
+      if (Get.isRegistered<DashboardController>()) {
+        final dashboardController = Get.find<DashboardController>();
+        final today = DateTime.now();
+        final todayStr = _formatDateString(today);
+        
+        // Check if there's a pending entry for today
+        if (dashboardController.hasPendingEntryToday) {
+          final startTimeStr = dashboardController.startTime.value;
+          if (startTimeStr.isNotEmpty) {
+            // Parse start time from "YYYY-MM-DD HH:MM:SS" format
+            try {
+              final startDateTime = DateTime.parse(startTimeStr);
+              workSessionStartTime.value = startDateTime;
+              isWorkSessionActive.value = true;
+              workSessionEndTime.value = null;
+              print('🟢 [CalendarController] Active work session found: ${startTimeStr}');
+            } catch (e) {
+              print('⚠️ [CalendarController] Error parsing start time: $e');
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print('⚠️ [CalendarController] Error initializing work tracking: $e');
+    }
+  }
+
+  /// Start timer for real-time work tracking updates
+  /// Updates currentTime every minute to trigger UI rebuilds
+  void _startWorkTrackingTimer() {
+    _workTrackingTimer?.cancel();
+    _workTrackingTimer = Timer.periodic(const Duration(minutes: 1), (timer) {
+      currentTime.value = DateTime.now();
+      
+      // Check if session should still be active
+      if (isWorkSessionActive.value && workSessionStartTime.value != null) {
+        // If session is for a different day, deactivate it
+        final today = DateTime.now();
+        final startDate = workSessionStartTime.value!;
+        if (startDate.year != today.year || 
+            startDate.month != today.month || 
+            startDate.day != today.day) {
+          _stopWorkSession();
+        }
+      }
+    });
+  }
+
+  /// Start work session (called when START button is clicked)
+  /// This method should be called from DashboardController after successful START
+  void startWorkSession(DateTime startDateTime) {
+    workSessionStartTime.value = startDateTime;
+    workSessionEndTime.value = null;
+    isWorkSessionActive.value = true;
+    currentTime.value = DateTime.now();
+    print('🟢 [CalendarController] Work session started: ${startDateTime}');
+  }
+
+  /// Stop work session (called when END button is clicked)
+  /// This method should be called from DashboardController after successful END
+  void stopWorkSession(DateTime endDateTime) {
+    workSessionEndTime.value = endDateTime;
+    isWorkSessionActive.value = false;
+    currentTime.value = DateTime.now();
+    print('🔴 [CalendarController] Work session ended: ${endDateTime}');
+  }
+
+  /// Internal method to stop work session (used by timer)
+  void _stopWorkSession() {
+    isWorkSessionActive.value = false;
+    workSessionEndTime.value = null;
+    print('🔄 [CalendarController] Work session stopped (day changed)');
+  }
+
+  /// Check if a time slot should be highlighted for real-time work tracking
+  /// Returns true if the hour slot is within the active work session range
+  /// 
+  /// Parameters:
+  /// - hour: The hour slot to check (0-23)
+  /// - dateStr: The date string (YYYY-MM-DD) to check
+  /// - userEmail: The user email to check (must match current user)
+  /// 
+  /// Returns true if:
+  /// - Work session is active OR has ended (has endTime)
+  /// - The date matches the work session date
+  /// - The hour is between start and end (or current time if active)
+  /// - The user email matches the current user
+  bool shouldHighlightTimeSlot(int hour, String dateStr, String userEmail) {
+    // Only highlight for current user
+    if (userEmail != this.userEmail.value) {
+      return false;
+    }
+
+    // Check if there's a work session
+    if (workSessionStartTime.value == null) {
+      return false;
+    }
+
+    // Check if date matches
+    final sessionDateStr = _formatDateString(workSessionStartTime.value!);
+    if (sessionDateStr != dateStr) {
+      return false;
+    }
+
+    // Get start hour
+    final startHour = workSessionStartTime.value!.hour;
+    
+    // Get end hour (current time if active, or end time if ended)
+    int endHour;
+    if (isWorkSessionActive.value) {
+      // Active session: highlight up to current hour
+      endHour = currentTime.value.hour;
+    } else if (workSessionEndTime.value != null) {
+      // Ended session: highlight up to end hour
+      endHour = workSessionEndTime.value!.hour;
+    } else {
+      // No end time yet, but session not active (shouldn't happen, but handle it)
+      return false;
+    }
+
+    // Check if hour is within range [startHour, endHour]
+    // Include the end hour (use <=)
+    return hour >= startHour && hour <= endHour;
+  }
+
+  /// Get the end hour for work session highlighting
+  /// Returns the hour that should be highlighted up to
+  int? getWorkSessionEndHour() {
+    if (workSessionStartTime.value == null) {
+      return null;
+    }
+
+    if (isWorkSessionActive.value) {
+      // Active session: highlight up to current hour
+      return currentTime.value.hour;
+    } else if (workSessionEndTime.value != null) {
+      // Ended session: highlight up to end hour
+      return workSessionEndTime.value!.hour;
+    }
+
+    return null;
+  }
+
+  /// Check if work session is active for a specific date
+  bool isWorkSessionActiveForDate(String dateStr) {
+    if (workSessionStartTime.value == null) {
+      return false;
+    }
+
+    final sessionDateStr = _formatDateString(workSessionStartTime.value!);
+    return sessionDateStr == dateStr && isWorkSessionActive.value;
   }
 }
 
